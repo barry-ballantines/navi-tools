@@ -169,7 +169,7 @@ async function updateMagneticVariation() {
     }
 }
 
-let compassDrag = null;
+let compassPointerAction = null;
 
 compassRose.addEventListener("pointerdown", event => {
     if (event.button !== 0 && event.pointerType === "mouse") {
@@ -182,32 +182,63 @@ compassRose.addEventListener("pointerdown", event => {
     compassRose.style.top = roseBounds.top - mapBounds.top + "px";
     compassRose.style.right = "auto";
     compassRose.style.bottom = "auto";
-    compassDrag = {
+    const resizeHandle = event.target.closest(".compass-resize");
+    compassPointerAction = {
+        type: resizeHandle ? "resize" : "move",
         pointerId: event.pointerId,
         offsetX: event.clientX - roseBounds.left,
-        offsetY: event.clientY - roseBounds.top
+        offsetY: event.clientY - roseBounds.top,
+        startX: event.clientX,
+        startY: event.clientY,
+        startWidth: roseBounds.width,
+        startHeight: roseBounds.height
     };
     compassRose.setPointerCapture(event.pointerId);
     map.dragging.disable();
-    compassRose.classList.add("dragging");
+    compassRose.classList.add(
+        resizeHandle ? "resizing" : "dragging"
+    );
     event.preventDefault();
 });
 
 compassRose.addEventListener("pointermove", event => {
-    if (!compassDrag || event.pointerId !== compassDrag.pointerId) {
+    if (!compassPointerAction || event.pointerId !== compassPointerAction.pointerId) {
         return;
     }
 
     const mapBounds = map.getContainer().getBoundingClientRect();
+    if (compassPointerAction.type === "resize") {
+        const left = parseFloat(compassRose.style.left) || 0;
+        const top = parseFloat(compassRose.style.top) || 0;
+        const maxSize = Math.min(
+            420,
+            mapBounds.width - left,
+            mapBounds.height - top
+        );
+        const size = Math.max(
+            100,
+            Math.min(
+                maxSize,
+                compassPointerAction.startWidth +
+                    event.clientX - compassPointerAction.startX,
+                compassPointerAction.startHeight +
+                    event.clientY - compassPointerAction.startY
+            )
+        );
+        compassRose.style.width = size + "px";
+        compassRose.style.height = size + "px";
+        return;
+    }
+
     const maxLeft = mapBounds.width - compassRose.offsetWidth;
     const maxTop = mapBounds.height - compassRose.offsetHeight;
     const left = Math.max(
         0,
-        Math.min(maxLeft, event.clientX - mapBounds.left - compassDrag.offsetX)
+        Math.min(maxLeft, event.clientX - mapBounds.left - compassPointerAction.offsetX)
     );
     const top = Math.max(
         0,
-        Math.min(maxTop, event.clientY - mapBounds.top - compassDrag.offsetY)
+        Math.min(maxTop, event.clientY - mapBounds.top - compassPointerAction.offsetY)
     );
 
     compassRose.style.left = left + "px";
@@ -215,13 +246,14 @@ compassRose.addEventListener("pointermove", event => {
 });
 
 function finishCompassDrag(event) {
-    if (!compassDrag || event.pointerId !== compassDrag.pointerId) {
+    if (!compassPointerAction || event.pointerId !== compassPointerAction.pointerId) {
         return;
     }
 
-    compassDrag = null;
+    compassPointerAction = null;
     map.dragging.enable();
     compassRose.classList.remove("dragging");
+    compassRose.classList.remove("resizing");
     updateMagneticVariation();
 }
 

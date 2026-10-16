@@ -28,11 +28,19 @@ function createApp() {
     const currentYear = new Date().getFullYear();
     const compassHandlers = {};
     const compassStyle = {};
+    const compassClasses = new Set();
     const compass = {
         style: compassStyle,
-        offsetWidth: 240,
-        offsetHeight: 240,
-        classList: { add() {}, remove() {} },
+        get offsetWidth() {
+            return parseFloat(compassStyle.width) || 240;
+        },
+        get offsetHeight() {
+            return parseFloat(compassStyle.height) || 240;
+        },
+        classList: {
+            add(className) { compassClasses.add(className); },
+            remove(className) { compassClasses.delete(className); }
+        },
         addEventListener(event, handler) {
             compassHandlers[event] = handler;
         },
@@ -41,8 +49,8 @@ function createApp() {
             return {
                 left: parseFloat(compassStyle.left) || 100,
                 top: parseFloat(compassStyle.top) || 100,
-                width: 240,
-                height: 240
+                width: parseFloat(compassStyle.width) || 240,
+                height: parseFloat(compassStyle.height) || 240
             };
         }
     };
@@ -206,6 +214,7 @@ function createApp() {
     return {
         elements, markers, lines, layers, layerControl, gridDrawOperations,
         compass, compassStyle, magneticLocations,
+        compassClasses,
         mapDraggingDisabled: () => mapDraggingDisabled,
         ready: () => vm.runInNewContext("magneticVariationUpdate", sandboxContext),
         grid: () => vm.runInNewContext("coordinateGrid", sandboxContext),
@@ -221,6 +230,7 @@ function createApp() {
                 pointerId: 1,
                 clientX: 120,
                 clientY: 120,
+                target: { closest: () => null },
                 preventDefault() {}
             });
             compassHandlers.pointermove({
@@ -229,6 +239,27 @@ function createApp() {
                 clientY: 320
             });
             compassHandlers.pointerup({ pointerId: 1 });
+            await vm.runInNewContext("magneticVariationUpdate", sandboxContext);
+        },
+        resizeCompass: async () => {
+            compassHandlers.pointerdown({
+                button: 0,
+                pointerType: "mouse",
+                pointerId: 2,
+                clientX: 340,
+                clientY: 340,
+                target: {
+                    closest: selector =>
+                        selector === ".compass-resize" ? {} : null
+                },
+                preventDefault() {}
+            });
+            compassHandlers.pointermove({
+                pointerId: 2,
+                clientX: 440,
+                clientY: 440
+            });
+            compassHandlers.pointerup({ pointerId: 2 });
             await vm.runInNewContext("magneticVariationUpdate", sandboxContext);
         }
     };
@@ -336,6 +367,20 @@ test("dragging the compass recalculates variation at its new center location", a
     assert.equal(app.compassStyle.top, "300px");
     assert.equal(app.mapDraggingDisabled(), false);
     assert.deepEqual(app.magneticLocations.at(-1), { lat: 56, lng: 11 });
+});
+
+test("resizing the compass updates its size and variation at the resized center", async () => {
+    const app = createApp();
+    await app.ready();
+    assert.deepEqual(app.magneticLocations[0], { lat: 54, lng: 10 });
+
+    await app.resizeCompass();
+
+    assert.equal(app.compassStyle.width, "340px");
+    assert.equal(app.compassStyle.height, "340px");
+    assert.equal(app.mapDraggingDisabled(), false);
+    assert.equal(app.compassClasses.has("resizing"), false);
+    assert.deepEqual(app.magneticLocations.at(-1), { lat: 54.5, lng: 10.5 });
 });
 
 test("Delete removes a selected LOS but keeps its endpoint markers", () => {

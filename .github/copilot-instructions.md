@@ -12,9 +12,9 @@
 - `app.js` also adds a Leaflet canvas graticule and layer switcher. OpenSeaMap
   compass-rose SVGs and geomagjs scripts are loaded in `index.html`; geomagjs
   calculates declination using pinned WMM2025 coefficients fetched from
-  PyGeoMag's NOAA model data. The draggable compass recalculates for the map
-  location beneath its center when dragged or when the map is panned. These
-  online assets require internet access.
+  PyGeoMag's NOAA model data. The movable, resizable compass recalculates for the
+  map location beneath its center when moved, resized, or when the map is panned.
+  These online assets require internet access.
 
 ## Measurement behavior
 - The LOS tool sets `mode` to `los`; two map clicks create a measurement.
