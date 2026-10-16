@@ -65,6 +65,10 @@ function removeObject(object) {
     );
 
     if (object instanceof L.Marker) {
+        const remainingEndpoint = affectedMeasurements
+            .flatMap(measurement => measurement.endpoints)
+            .find(endpoint => endpoint !== object);
+
         affectedMeasurements.forEach(measurement => {
             map.removeLayer(measurement.line);
             objects = objects.filter(item => item !== measurement.line);
@@ -76,6 +80,13 @@ function removeObject(object) {
             !affectedMeasurements.includes(measurement)
         );
         points = points.filter(point => point !== object);
+
+        if (remainingEndpoint) {
+            points = [remainingEndpoint];
+            mode = "los";
+            activateButton("losTool");
+            info.innerHTML = "LOS aktiv<br>Weiteren Punkt setzen";
+        }
     } else {
         measurements = measurements.filter(measurement =>
             measurement.line !== object
@@ -88,7 +99,10 @@ function removeObject(object) {
 
     map.removeLayer(object);
     objects = objects.filter(item => item !== object);
-    info.innerHTML = "Objekt gelöscht";
+
+    if (!points.length) {
+        info.innerHTML = "Objekt gelöscht";
+    }
 }
 
 document.addEventListener("keydown", event => {

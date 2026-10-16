@@ -205,7 +205,30 @@ test("Delete on a marker removes it and its LOS but keeps the other endpoint", (
     assert.equal(app.layers.has(app.markers[0]), false);
     assert.equal(app.layers.has(app.lines[0]), false);
     assert.equal(app.layers.has(app.markers[1]), true);
-    assert.equal(app.text(), "Objekt gelöscht");
+    assert.equal(app.text(), "LOS aktiv<br>Weiteren Punkt setzen");
+});
+
+test("deleting a LOS endpoint keeps the other as the first point of a new LOS", () => {
+    const app = createApp();
+    app.select("losTool");
+    app.click(0, 0);
+    app.click(0, 1);
+
+    app.markers[0].fire("click");
+    app.deleteKey();
+
+    assert.equal(app.layers.has(app.markers[0]), false);
+    assert.equal(app.layers.has(app.lines[0]), false);
+    assert.equal(app.layers.has(app.markers[1]), true);
+    assert.equal(app.text(), "LOS aktiv<br>Weiteren Punkt setzen");
+
+    app.click(0, 2);
+
+    assert.equal(app.lines.length, 2);
+    assert.equal(app.lines[1].latlngs[0].lng, 1);
+    assert.equal(app.lines[1].latlngs[1].lng, 2);
+    assert.equal(app.layers.has(app.lines[1]), true);
+    assert.equal(app.text(), "<b>LOS</b><br>Distanz: 60.04 sm<br>Kurs: 90.0°");
 });
 
 test("Delete removes a selected pending marker without completing a false pair", () => {

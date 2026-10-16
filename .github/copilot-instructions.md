@@ -21,8 +21,9 @@
   Drag handlers read current marker coordinates and update only that pair's line.
   The shared info panel displays the measurement most recently created or dragged.
 - Click a marker or LOS to select it; Delete removes the selected object.
-  Deleting a marker also removes its connected LOS and keeps the other endpoint;
-  deleting an LOS leaves both markers available for individual deletion.
+  Deleting a marker also removes its connected LOS and reuses the other endpoint
+  as the first point for a new LOS; deleting an LOS leaves both markers available
+  for individual deletion.
 - Each LOS measurement displays both `distanceNM` (haversine with a 6,371,000 m
   radius and 1,852 m per nautical mile) and `bearing` (initial bearing normalized
   to [0, 360)). Preserve German UI labels, `sm` units, two distance decimals, and
