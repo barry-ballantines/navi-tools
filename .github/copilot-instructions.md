@@ -11,8 +11,8 @@
   Both layers are added at startup. Leaflet assets and tiles require internet access.
 
 ## Measurement behavior
-- Toolbar tools set `mode` to `distance`, `bearing` or `los`; two map clicks
-  create a measurement. The active tool stays selected for subsequent pairs.
+- The LOS tool sets `mode` to `los`; two map clicks create a measurement.
+  The active tool stays selected for subsequent pairs.
 - `points` holds pending endpoint markers; `objects` tracks every measurement
   marker and polyline so the clear handler can remove them without removing tiles.
 - Endpoints use draggable `L.marker` instances with an `L.divIcon` styled by
@@ -20,10 +20,10 @@
 - Each completed pair captures its endpoint markers, line and measurement mode.
   Drag handlers read current marker coordinates and update only that pair's line.
   The shared info panel displays the measurement most recently created or dragged.
-- `distanceNM` uses haversine distance with a 6,371,000 m radius and 1,852 m per
-  nautical mile; `bearing` returns initial bearing normalized to [0, 360).
-- Preserve German UI labels, `sm` distance units, two decimal places for distance,
-  and one decimal place with a degree symbol for bearing.
+- Each LOS measurement displays both `distanceNM` (haversine with a 6,371,000 m
+  radius and 1,852 m per nautical mile) and `bearing` (initial bearing normalized
+  to [0, 360)). Preserve German UI labels, `sm` units, two distance decimals, and
+  one bearing decimal with a degree symbol.
 
 ## Workflows and conventions
 - Run `python navitools.py` from the project root: `index.html` lookup and static

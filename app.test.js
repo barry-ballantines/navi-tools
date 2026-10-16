@@ -6,7 +6,7 @@ const vm = require("node:vm");
 
 function createApp() {
     const elements = Object.fromEntries(
-        ["info", "distanceTool", "bearingTool", "losTool", "clearTool"]
+        ["info", "losTool", "clearTool"]
             .map(id => [id, {
                 innerHTML: "",
                 classList: { add() {}, remove() {} }
@@ -78,11 +78,11 @@ function createApp() {
     };
 }
 
-test("a pending endpoint can move before its line is created", () => {
+test("a pending LOS endpoint can move before its line is created", () => {
     const app = createApp();
     app.click(0, 0);
     assert.equal(app.markers.length, 0);
-    app.select("distanceTool");
+    app.select("losTool");
     app.click(0, 0);
     assert.equal(app.markers[0].options.draggable, true);
     assert.equal(app.markers[0].options.bubblingMouseEvents, false);
@@ -90,35 +90,34 @@ test("a pending endpoint can move before its line is created", () => {
     app.markers[0].dragTo({ lat: 0, lng: 1 });
     app.click(0, 2);
     assert.equal(app.lines[0].latlngs[0].lng, 1);
-    assert.equal(app.text(), "<b>Stechzirkel</b><br>60.04 sm");
+    assert.equal(app.text(), "<b>LOS</b><br>Distanz: 60.04 sm<br>Kurs: 90.0°");
 });
 
-test("dragging either endpoint updates its line and distance", () => {
+test("dragging either endpoint updates its line, distance, and bearing", () => {
     const app = createApp();
-    app.select("distanceTool");
+    app.select("losTool");
     app.click(0, 0);
     app.click(0, 1);
     app.markers[1].dragTo({ lat: 0, lng: 2 });
     assert.equal(app.lines[0].latlngs[1].lng, 2);
-    assert.equal(app.text(), "<b>Stechzirkel</b><br>120.08 sm");
+    assert.equal(app.text(), "<b>LOS</b><br>Distanz: 120.08 sm<br>Kurs: 90.0°");
     app.markers[0].dragTo({ lat: 0, lng: 1 });
     assert.equal(app.lines[0].latlngs[0].lng, 1);
-    assert.equal(app.text(), "<b>Stechzirkel</b><br>60.04 sm");
+    assert.equal(app.text(), "<b>LOS</b><br>Distanz: 60.04 sm<br>Kurs: 90.0°");
     assert.equal(app.markers.length, 2);
 });
 
-test("old measurements retain their mode and do not move newer lines", () => {
+test("dragging an older LOS measurement does not move a newer line", () => {
     const app = createApp();
-    app.select("bearingTool");
+    app.select("losTool");
     app.click(0, 0);
     app.click(0, 1);
-    assert.equal(app.text(), "<b>Peilung</b><br>90.0°");
-    app.select("losTool");
+    assert.equal(app.text(), "<b>LOS</b><br>Distanz: 60.04 sm<br>Kurs: 90.0°");
     app.click(10, 10);
     app.click(11, 10);
     const newerLine = app.lines[1].latlngs;
     app.markers[1].dragTo({ lat: 1, lng: 0 });
-    assert.equal(app.text(), "<b>Peilung</b><br>0.0°");
+    assert.equal(app.text(), "<b>LOS</b><br>Distanz: 60.04 sm<br>Kurs: 0.0°");
     assert.equal(app.lines[1].latlngs, newerLine);
     app.markers[3].dragTo({ lat: 10, lng: 11 });
     assert.equal(app.text(), "<b>LOS</b><br>Distanz: 59.13 sm<br>Kurs: 89.9°");
@@ -126,7 +125,7 @@ test("old measurements retain their mode and do not move newer lines", () => {
 
 test("clear removes completed and pending points but preserves tile layers", () => {
     const app = createApp();
-    app.select("distanceTool");
+    app.select("losTool");
     app.click(0, 0);
     app.click(0, 1);
     app.click(1, 1);

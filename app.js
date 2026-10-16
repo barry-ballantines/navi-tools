@@ -34,18 +34,6 @@ function activateButton(id) {
         .classList.add("active");
 }
 
-document.getElementById("distanceTool").onclick = () => {
-    mode = "distance";
-    activateButton("distanceTool");
-    info.innerHTML = "Stechzirkel aktiv<br>Punkt 1 setzen";
-};
-
-document.getElementById("bearingTool").onclick = () => {
-    mode = "bearing";
-    activateButton("bearingTool");
-    info.innerHTML = "Peilung aktiv<br>Punkt 1 setzen";
-};
-
 document.getElementById("losTool").onclick = () => {
     mode = "los";
     activateButton("losTool");
@@ -149,7 +137,6 @@ map.on("click", (e) => {
     }
 
     const endpoints = points;
-    const measurementMode = mode;
 
     const line = L.polyline(
         endpoints.map(point => point.getLatLng()),
@@ -168,31 +155,14 @@ map.on("click", (e) => {
         const dist = distanceNM(p1, p2);
         const kurs = bearing(p1, p2);
 
-        if (measurementMode === "distance") {
-
-            info.innerHTML =
-                "<b>Stechzirkel</b><br>" +
-                dist.toFixed(2) +
-                " sm";
-
-        } else if (measurementMode === "bearing") {
-
-            info.innerHTML =
-                "<b>Peilung</b><br>" +
-                kurs.toFixed(1) +
-                "°";
-
-        } else {
-
-            info.innerHTML =
-                "<b>LOS</b><br>" +
-                "Distanz: " +
-                dist.toFixed(2) +
-                " sm<br>" +
-                "Kurs: " +
-                kurs.toFixed(1) +
-                "°";
-        }
+        info.innerHTML =
+            "<b>LOS</b><br>" +
+            "Distanz: " +
+            dist.toFixed(2) +
+            " sm<br>" +
+            "Kurs: " +
+            kurs.toFixed(1) +
+            "°";
     }
 
     endpoints.forEach(point => point.on("drag", updateMeasurement));
