@@ -24,6 +24,7 @@ function createApp() {
     const documentHandlers = {};
     const layerControl = {};
     const gridDrawOperations = [];
+    const gridLabels = [];
     const magneticLocations = [];
     const currentYear = new Date().getFullYear();
     const compassHandlers = {};
@@ -189,7 +190,11 @@ function createApp() {
                     moveTo() { gridDrawOperations.push("move"); },
                     lineTo() { gridDrawOperations.push("line"); },
                     stroke() { gridDrawOperations.push("stroke"); },
-                    fillText() { gridDrawOperations.push("label"); }
+                    measureText(text) { return { width: text.length * 6 }; },
+                    fillText(text) {
+                        gridDrawOperations.push("label");
+                        gridLabels.push(text);
+                    }
                 })
             }),
             addEventListener: (event, handler) => {
@@ -213,11 +218,17 @@ function createApp() {
     );
     return {
         elements, markers, lines, layers, layerControl, gridDrawOperations,
+        gridLabels,
         compass, compassStyle, magneticLocations,
         compassClasses,
         mapDraggingDisabled: () => mapDraggingDisabled,
         ready: () => vm.runInNewContext("magneticVariationUpdate", sandboxContext),
         grid: () => vm.runInNewContext("coordinateGrid", sandboxContext),
+        formatGridCoordinate: (value, isLatitude) =>
+            vm.runInNewContext(
+                `formatGridCoordinate(${value}, ${isLatitude})`,
+                sandboxContext
+            ),
         click: (lat, lng) => handlers.click({ latlng: { lat, lng } }),
         select: id => elements[id].onclick(),
         text: () => elements.info.innerHTML,
@@ -277,7 +288,7 @@ test("a pending LOS endpoint can move before its line is created", () => {
     app.markers[0].dragTo({ lat: 0, lng: 1 });
     app.click(0, 2);
     assert.equal(app.lines[0].latlngs[0].lng, 1);
-    assert.equal(app.text(), "<b>LOS</b><br>Distanz: 60.04 sm<br>Kurs: 90.0°");
+    assert.equal(app.text(), "<b>LOS</b><br>Distance: 60.04 nm<br>Bearing: 90.0°");
 });
 
 test("dragging either endpoint updates its line, distance, and bearing", () => {
@@ -287,10 +298,10 @@ test("dragging either endpoint updates its line, distance, and bearing", () => {
     app.click(0, 1);
     app.markers[1].dragTo({ lat: 0, lng: 2 });
     assert.equal(app.lines[0].latlngs[1].lng, 2);
-    assert.equal(app.text(), "<b>LOS</b><br>Distanz: 120.08 sm<br>Kurs: 90.0°");
+    assert.equal(app.text(), "<b>LOS</b><br>Distance: 120.08 nm<br>Bearing: 90.0°");
     app.markers[0].dragTo({ lat: 0, lng: 1 });
     assert.equal(app.lines[0].latlngs[0].lng, 1);
-    assert.equal(app.text(), "<b>LOS</b><br>Distanz: 60.04 sm<br>Kurs: 90.0°");
+    assert.equal(app.text(), "<b>LOS</b><br>Distance: 60.04 nm<br>Bearing: 90.0°");
     assert.equal(app.markers.length, 2);
 });
 
@@ -299,15 +310,15 @@ test("dragging an older LOS measurement does not move a newer line", () => {
     app.select("losTool");
     app.click(0, 0);
     app.click(0, 1);
-    assert.equal(app.text(), "<b>LOS</b><br>Distanz: 60.04 sm<br>Kurs: 90.0°");
+    assert.equal(app.text(), "<b>LOS</b><br>Distance: 60.04 nm<br>Bearing: 90.0°");
     app.click(10, 10);
     app.click(11, 10);
     const newerLine = app.lines[1].latlngs;
     app.markers[1].dragTo({ lat: 1, lng: 0 });
-    assert.equal(app.text(), "<b>LOS</b><br>Distanz: 60.04 sm<br>Kurs: 0.0°");
+    assert.equal(app.text(), "<b>LOS</b><br>Distance: 60.04 nm<br>Bearing: 0.0°");
     assert.equal(app.lines[1].latlngs, newerLine);
     app.markers[3].dragTo({ lat: 10, lng: 11 });
-    assert.equal(app.text(), "<b>LOS</b><br>Distanz: 59.13 sm<br>Kurs: 89.9°");
+    assert.equal(app.text(), "<b>LOS</b><br>Distance: 59.13 nm<br>Bearing: 89.9°");
 });
 
 test("clear removes completed and pending points but preserves tile layers", () => {
@@ -318,7 +329,7 @@ test("clear removes completed and pending points but preserves tile layers", () 
     app.click(1, 1);
     app.select("clearTool");
     assert.equal(app.layers.size, 3);
-    assert.equal(app.text(), "Gelöscht");
+    assert.equal(app.text(), "Cleared");
     app.click(2, 2);
     assert.equal(app.markers.length, 3);
     app.select("losTool");
@@ -332,8 +343,8 @@ test("OpenSeaMap seamarks and the coordinate grid are enabled as overlays", () =
     const app = createApp();
     assert.equal(app.layers.size, 3);
     assert.equal(app.layerControl.baseLayers.OpenStreetMap !== undefined, true);
-    assert.equal(app.layerControl.overlays["Seezeichen (OpenSeaMap)"] !== undefined, true);
-    assert.equal(app.layerControl.overlays["Breiten-/Längengrad"] !== undefined, true);
+    assert.equal(app.layerControl.overlays["Nautical Marks (OpenSeaMap)"] !== undefined, true);
+    assert.equal(app.layerControl.overlays["Latitude/Longitude Grid"] !== undefined, true);
 });
 
 test("the coordinate grid renders canvas lines and coordinate labels", () => {
@@ -343,6 +354,16 @@ test("the coordinate grid renders canvas lines and coordinate labels", () => {
     assert.equal(tile.width, 256);
     assert.equal(app.gridDrawOperations.filter(operation => operation === "stroke").length > 0, true);
     assert.equal(app.gridDrawOperations.filter(operation => operation === "label").length > 0, true);
+    assert.equal(app.gridLabels.includes("E 000° 00.00'"), true);
+    assert.equal(app.gridLabels.includes("N 84° 00.00'"), true);
+});
+
+test("grid labels use padded degrees and two decimal minutes", () => {
+    const app = createApp();
+    assert.equal(app.formatGridCoordinate(54.5, true), "N 54° 30.00'");
+    assert.equal(app.formatGridCoordinate(-12.25, true), "S 12° 15.00'");
+    assert.equal(app.formatGridCoordinate(10.2583333333, false), "E 010° 15.50'");
+    assert.equal(app.formatGridCoordinate(-3.999999, false), "W 004° 00.00'");
 });
 
 test("the compass shows WMM2025 magnetic variation and annual change", async () => {
@@ -397,7 +418,7 @@ test("Delete removes a selected LOS but keeps its endpoint markers", () => {
     assert.equal(app.layers.has(app.lines[0]), false);
     assert.equal(app.layers.has(app.markers[0]), true);
     assert.equal(app.layers.has(app.markers[1]), true);
-    assert.equal(app.text(), "Objekt gelöscht");
+    assert.equal(app.text(), "Object deleted");
 });
 
 test("Delete on a marker removes it and its LOS but keeps the other endpoint", () => {
@@ -413,7 +434,7 @@ test("Delete on a marker removes it and its LOS but keeps the other endpoint", (
     assert.equal(app.layers.has(app.markers[0]), false);
     assert.equal(app.layers.has(app.lines[0]), false);
     assert.equal(app.layers.has(app.markers[1]), true);
-    assert.equal(app.text(), "LOS aktiv<br>Weiteren Punkt setzen");
+    assert.equal(app.text(), "LOS active<br>Set the next point");
 });
 
 test("deleting a LOS endpoint keeps the other as the first point of a new LOS", () => {
@@ -428,7 +449,7 @@ test("deleting a LOS endpoint keeps the other as the first point of a new LOS", 
     assert.equal(app.layers.has(app.markers[0]), false);
     assert.equal(app.layers.has(app.lines[0]), false);
     assert.equal(app.layers.has(app.markers[1]), true);
-    assert.equal(app.text(), "LOS aktiv<br>Weiteren Punkt setzen");
+    assert.equal(app.text(), "LOS active<br>Set the next point");
 
     app.click(0, 2);
 
@@ -436,7 +457,7 @@ test("deleting a LOS endpoint keeps the other as the first point of a new LOS", 
     assert.equal(app.lines[1].latlngs[0].lng, 1);
     assert.equal(app.lines[1].latlngs[1].lng, 2);
     assert.equal(app.layers.has(app.lines[1]), true);
-    assert.equal(app.text(), "<b>LOS</b><br>Distanz: 60.04 sm<br>Kurs: 90.0°");
+    assert.equal(app.text(), "<b>LOS</b><br>Distance: 60.04 nm<br>Bearing: 90.0°");
 });
 
 test("Delete removes a selected pending marker without completing a false pair", () => {

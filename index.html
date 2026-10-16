@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -21,8 +21,8 @@
 
 <div
     class="compass-rose"
-    aria-label="Verschiebbare Kompassrose mit magnetischer Missweisung nach WMM2025"
-    title="Ziehen, um die Missweisung am Mittelpunkt anzuzeigen"
+    aria-label="Movable compass rose with WMM2025 magnetic variation"
+    title="Drag to show magnetic variation at the center"
 >
     <img
         id="geoCompassRose"
@@ -37,26 +37,26 @@
         draggable="false"
     >
     <div class="compass-variation">
-        <p id="magCompassTextTop">Missweisung wird geladen</p>
+        <p id="magCompassTextTop">Loading magnetic variation</p>
         <p id="magCompassTextBottom">WMM2025 / NOAA</p>
     </div>
     <button
         class="compass-resize"
         type="button"
-        aria-label="Kompassrose skalieren"
-        title="Ziehen, um die Kompassrose zu skalieren"
+        aria-label="Resize compass rose"
+        title="Drag to resize the compass rose"
     ></button>
 </div>
 
 <div class="toolbar">
-    <button id="losTool">LOS-Linie</button>
-    <button id="clearTool">Löschen</button>
+    <button id="losTool">LOS Line</button>
+    <button id="clearTool">Clear</button>
 </div>
 
 <div class="info" id="info">
-    Werkzeug auswählen<br>
-    Punkte zum Verschieben ziehen<br>
-    Objekt anklicken und Entf drücken zum Löschen
+    Select a tool<br>
+    Drag points to move them<br>
+    Click an object and press Delete to remove it
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

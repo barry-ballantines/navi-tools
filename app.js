@@ -17,14 +17,23 @@ const seamark = L.tileLayer(
 
 const gridSteps = [180, 90, 45, 30, 15, 6, 3, 2, 1, 0.5, 0.25, 0.1, 0.05, 0.02, 0.01, 0.005];
 
-function formatGridCoordinate(value, isLatitude, step) {
-    const decimals = Math.min(4, Math.max(0, Math.ceil(-Math.log10(step))));
-    const absolute = Math.abs(value).toFixed(decimals);
+function formatGridCoordinate(value, isLatitude) {
     const hemisphere = isLatitude
         ? (value < 0 ? "S" : "N")
         : (value < 0 ? "W" : "E");
+    const totalMinuteHundredths = Math.round(Math.abs(value) * 6000);
+    const degrees = Math.floor(totalMinuteHundredths / 6000);
+    const minuteHundredths = totalMinuteHundredths % 6000;
+    const degreeDigits = isLatitude ? 2 : 3;
 
-    return absolute + "°" + hemisphere;
+    return (
+        hemisphere +
+        " " +
+        String(degrees).padStart(degreeDigits, "0") +
+        "° " +
+        (minuteHundredths / 100).toFixed(2).padStart(5, "0") +
+        "'"
+    );
 }
 
 const CoordinateGrid = L.GridLayer.extend({
@@ -60,9 +69,11 @@ const CoordinateGrid = L.GridLayer.extend({
             context.moveTo(x, 0);
             context.lineTo(x, size.y);
             context.stroke();
+            const label = formatGridCoordinate(longitude, false);
+            const labelWidth = context.measureText(label).width;
             context.fillText(
-                formatGridCoordinate(longitude, false, step),
-                Math.min(x + 3, size.x - 38),
+                label,
+                Math.max(2, Math.min(x + 3, size.x - labelWidth - 2)),
                 size.y - 5
             );
         }
@@ -78,7 +89,7 @@ const CoordinateGrid = L.GridLayer.extend({
             context.lineTo(size.x, y);
             context.stroke();
             context.fillText(
-                formatGridCoordinate(latitude, true, step),
+                formatGridCoordinate(latitude, true),
                 4,
                 Math.max(12, y - 3)
             );
@@ -100,8 +111,8 @@ coordinateGrid.addTo(map);
 L.control.layers(
     { "OpenStreetMap": osm },
     {
-        "Seezeichen (OpenSeaMap)": seamark,
-        "Breiten-/Längengrad": coordinateGrid
+        "Nautical Marks (OpenSeaMap)": seamark,
+        "Latitude/Longitude Grid": coordinateGrid
     },
     { collapsed: true }
 ).addTo(map);
@@ -164,7 +175,7 @@ async function updateMagneticVariation() {
             "'";
     } catch (error) {
         console.error("Magnetic variation could not be calculated.", error);
-        magneticVariationText.textContent = "Missweisung nicht verfügbar";
+        magneticVariationText.textContent = "Magnetic variation unavailable";
         annualVariationText.textContent = "WMM2025";
     }
 }
@@ -322,7 +333,7 @@ function removeObject(object) {
             points = [remainingEndpoint];
             mode = "los";
             activateButton("losTool");
-            info.innerHTML = "LOS aktiv<br>Weiteren Punkt setzen";
+            info.innerHTML = "LOS active<br>Set the next point";
         }
     } else {
         measurements = measurements.filter(measurement =>
@@ -338,7 +349,7 @@ function removeObject(object) {
     objects = objects.filter(item => item !== object);
 
     if (!points.length) {
-        info.innerHTML = "Objekt gelöscht";
+        info.innerHTML = "Object deleted";
     }
 }
 
@@ -370,7 +381,7 @@ function activateButton(id) {
 document.getElementById("losTool").onclick = () => {
     mode = "los";
     activateButton("losTool");
-    info.innerHTML = "LOS aktiv<br>Punkt 1 setzen";
+    info.innerHTML = "LOS active<br>Set point 1";
 };
 
 document.getElementById("clearTool").onclick = () => {
@@ -386,7 +397,7 @@ document.getElementById("clearTool").onclick = () => {
         .querySelectorAll(".toolbar button")
         .forEach(btn => btn.classList.remove("active"));
 
-    info.innerHTML = "Gelöscht";
+    info.innerHTML = "Cleared";
 };
 
 function distanceNM(a, b) {
@@ -454,8 +465,8 @@ map.on("click", (e) => {
         {
             draggable: true,
             bubblingMouseEvents: false,
-            title: "Punkt verschieben",
-            alt: "Verschiebbarer Messpunkt",
+            title: "Drag to move point",
+            alt: "Draggable measurement point",
             icon: L.divIcon({
                 className: "measurement-point",
                 iconSize: [24, 24],
@@ -497,10 +508,10 @@ map.on("click", (e) => {
 
         info.innerHTML =
             "<b>LOS</b><br>" +
-            "Distanz: " +
+            "Distance: " +
             dist.toFixed(2) +
-            " sm<br>" +
-            "Kurs: " +
+            " nm<br>" +
+            "Bearing: " +
             kurs.toFixed(1) +
             "°";
     }

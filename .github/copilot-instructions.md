@@ -32,8 +32,11 @@
   for individual deletion.
 - Each LOS measurement displays both `distanceNM` (haversine with a 6,371,000 m
   radius and 1,852 m per nautical mile) and `bearing` (initial bearing normalized
-  to [0, 360)). Preserve German UI labels, `sm` units, two distance decimals, and
-  one bearing decimal with a degree symbol.
+  to [0, 360)). Keep all visible UI text in English. Display nautical-mile
+  distances with `nm` and two decimals; bearings use one decimal and a degree
+  symbol.
+- Grid coordinates use `N dd° mm.mm'` / `S dd° mm.mm'` for latitude and
+  `E ddd° mm.mm'` / `W ddd° mm.mm'` for longitude.
 
 ## Workflows and conventions
 - Run `python navitools.py` from the project root: `index.html` lookup and static
