@@ -25,6 +25,19 @@ function createApp() {
     const layerControl = {};
     const gridDrawOperations = [];
     const gridLabels = [];
+    const gridLabelPositions = [];
+    const gridBackgrounds = [];
+    const gridState = {
+        pixelBounds: {
+            min: { x: 0, y: 0 },
+            max: { x: 256, y: 256 }
+        },
+        font: "",
+        fillStyle: "",
+        textAlign: "",
+        textBaseline: "",
+        redraws: 0
+    };
     const magneticLocations = [];
     const currentYear = new Date().getFullYear();
     const compassHandlers = {};
@@ -58,9 +71,13 @@ function createApp() {
     let mapDraggingDisabled = false;
     const map = {
         setView() { return this; },
-        on(event, handler) { handlers[event] = handler; },
+        on(event, handler) {
+            handlers[event] = handlers[event] || [];
+            handlers[event].push(handler);
+        },
         removeLayer(layer) { layers.delete(layer); },
         getCenter() { return { lat: 54, lng: 10 }; },
+        getPixelBounds() { return gridState.pixelBounds; },
         getContainer() {
             return {
                 getBoundingClientRect: () => ({
@@ -144,6 +161,11 @@ function createApp() {
         getTileSize() {
             return { x: 256, y: 256 };
         }
+
+        redraw() {
+            gridState.redraws += 1;
+            return this;
+        }
     }
     const L = {
         Marker: MockMarker,
@@ -183,20 +205,40 @@ function createApp() {
             getElementById: id => id === "compassRose" ? compass : elements[id],
             querySelector: selector => selector === ".compass-rose" ? compass : null,
             querySelectorAll: () => Object.values(elements),
-            createElement: tagName => ({
-                tagName,
-                getContext: () => ({
-                    beginPath() { gridDrawOperations.push("begin"); },
-                    moveTo() { gridDrawOperations.push("move"); },
-                    lineTo() { gridDrawOperations.push("line"); },
-                    stroke() { gridDrawOperations.push("stroke"); },
-                    measureText(text) { return { width: text.length * 6 }; },
-                    fillText(text) {
-                        gridDrawOperations.push("label");
-                        gridLabels.push(text);
-                    }
-                })
-            }),
+            createElement: tagName => {
+                const element = {
+                    tagName,
+                    getContext: () => ({
+                        set font(value) { gridState.font = value; },
+                        set fillStyle(value) { gridState.fillStyle = value; },
+                        set textAlign(value) { gridState.textAlign = value; },
+                        set textBaseline(value) { gridState.textBaseline = value; },
+                        beginPath() { gridDrawOperations.push("begin"); },
+                        moveTo() { gridDrawOperations.push("move"); },
+                        lineTo() { gridDrawOperations.push("line"); },
+                        stroke() { gridDrawOperations.push("stroke"); },
+                        measureText(text) { return { width: text.length * 5 }; },
+                        fillRect(x, y, width, height) {
+                            gridBackgrounds.push({
+                                x, y, width, height, fillStyle: gridState.fillStyle
+                            });
+                        },
+                        fillText(text, x, y) {
+                            gridDrawOperations.push("label");
+                            gridLabels.push(text);
+                            gridLabelPositions.push({
+                                text,
+                                x,
+                                y,
+                                textAlign: gridState.textAlign,
+                                textBaseline: gridState.textBaseline,
+                                fillStyle: gridState.fillStyle
+                            });
+                        }
+                    })
+                };
+                return element;
+            },
             addEventListener: (event, handler) => {
                 documentHandlers[event] = handler;
             }
@@ -218,18 +260,27 @@ function createApp() {
     );
     return {
         elements, markers, lines, layers, layerControl, gridDrawOperations,
-        gridLabels,
+        gridLabels, gridLabelPositions, gridBackgrounds,
+        gridFont: () => gridState.font,
+        gridRedraws: () => gridState.redraws,
         compass, compassStyle, magneticLocations,
         compassClasses,
         mapDraggingDisabled: () => mapDraggingDisabled,
         ready: () => vm.runInNewContext("magneticVariationUpdate", sandboxContext),
         grid: () => vm.runInNewContext("coordinateGrid", sandboxContext),
+        fireMapEvent: event => handlers[event].forEach(handler => handler()),
+        setGridPixelBounds: pixelBounds => {
+            gridState.pixelBounds = pixelBounds;
+        },
         formatGridCoordinate: (value, isLatitude) =>
             vm.runInNewContext(
                 `formatGridCoordinate(${value}, ${isLatitude})`,
                 sandboxContext
             ),
-        click: (lat, lng) => handlers.click({ latlng: { lat, lng } }),
+        click: (lat, lng) =>
+            handlers.click.forEach(handler =>
+                handler({ latlng: { lat, lng } })
+            ),
         select: id => elements[id].onclick(),
         text: () => elements.info.innerHTML,
         deleteKey: (key = "Delete", target = { tagName: "BODY" }) =>
@@ -384,16 +435,93 @@ test("the coordinate grid renders canvas lines and coordinate labels", () => {
     assert.equal(tile.width, 256);
     assert.equal(app.gridDrawOperations.filter(operation => operation === "stroke").length > 0, true);
     assert.equal(app.gridDrawOperations.filter(operation => operation === "label").length > 0, true);
-    assert.equal(app.gridLabels.includes("E 000° 00.00'"), true);
-    assert.equal(app.gridLabels.includes("N 84° 00.00'"), true);
+    assert.equal(app.gridLabels.includes("E 000°"), true);
+    assert.equal(app.gridLabels.includes("N 84°"), true);
+    assert.equal(app.gridFont(), "9px Arial, sans-serif");
+    assert.equal(
+        app.gridBackgrounds.every(background =>
+            background.fillStyle === "rgba(255, 255, 255, 0.78)"
+        ),
+        true
+    );
+    assert.equal(
+        app.gridLabelPositions.every(label =>
+            label.textAlign === "center" &&
+            label.textBaseline === "middle" &&
+            label.fillStyle === "rgba(18, 56, 70, 0.95)"
+        ),
+        true
+    );
+    assert.equal(
+        app.gridLabelPositions.find(label => label.text === "E 000°").x,
+        0
+    );
+    assert.equal(
+        app.gridLabelPositions.find(label => label.text === "N 84°").y,
+        256
+    );
 });
 
-test("grid labels use padded degrees and two decimal minutes", () => {
+test("grid labels use padded degrees and rounded whole minutes", () => {
     const app = createApp();
-    assert.equal(app.formatGridCoordinate(54.5, true), "N 54° 30.00'");
-    assert.equal(app.formatGridCoordinate(-12.25, true), "S 12° 15.00'");
-    assert.equal(app.formatGridCoordinate(10.2583333333, false), "E 010° 15.50'");
-    assert.equal(app.formatGridCoordinate(-3.999999, false), "W 004° 00.00'");
+    assert.equal(app.formatGridCoordinate(30, true), "N 30°");
+    assert.equal(app.formatGridCoordinate(30.2, true), "N 30° 12'");
+    assert.equal(app.formatGridCoordinate(-12.25, true), "S 12° 15'");
+    assert.equal(app.formatGridCoordinate(10.2666666667, false), "E 010° 16'");
+    assert.equal(app.formatGridCoordinate(-3.999999, false), "W 004°");
+});
+
+test("grid labels only appear where grid lines meet the viewport border", () => {
+    const app = createApp();
+    app.setGridPixelBounds({
+        min: { x: 0, y: 0 },
+        max: { x: 3072, y: 768 }
+    });
+
+    app.grid().createTile({ x: 1, y: 1, z: 6 });
+    assert.equal(app.gridLabelPositions.length, 0);
+
+    app.grid().createTile({ x: 3, y: 0, z: 6 });
+    assert.equal(app.gridLabelPositions.some(label => label.y === 8), true);
+
+    app.grid().createTile({ x: 3, y: 2, z: 6 });
+    assert.equal(app.gridLabelPositions.some(label => label.y === 248), true);
+
+    app.grid().createTile({ x: 0, y: 1, z: 6 });
+    assert.equal(app.gridLabelPositions.some(label => label.x === 20), true);
+
+    app.grid().createTile({ x: 11, y: 1, z: 6 });
+    assert.equal(app.gridLabelPositions.some(label => label.x === 236), true);
+});
+
+test("the coordinate grid refreshes its edge labels after movement and resize", () => {
+    const app = createApp();
+    app.grid().createTile({ x: 0, y: 0, z: 6 });
+    const originalLabelCount = app.gridLabelPositions.length;
+    const initialTopLabel = app.gridLabelPositions[0];
+
+    app.setGridPixelBounds({
+        min: { x: 20, y: 20 },
+        max: { x: 300, y: 300 }
+    });
+    app.fireMapEvent("moveend");
+    assert.equal(app.gridRedraws(), 1);
+    app.grid().createTile({ x: 0, y: 0, z: 6 });
+    assert.equal(app.gridLabelPositions.length > originalLabelCount, true);
+    assert.notEqual(
+        app.gridLabelPositions[originalLabelCount].y,
+        initialTopLabel.y
+    );
+
+    app.setGridPixelBounds({
+        min: { x: 20, y: 20 },
+        max: { x: 300, y: 220 }
+    });
+    app.fireMapEvent("resize");
+    assert.equal(app.gridRedraws(), 2);
+
+    app.fireMapEvent("zoomend");
+    assert.equal(app.gridRedraws(), 3);
 });
 
 test("the compass shows WMM2025 magnetic variation and annual change", async () => {

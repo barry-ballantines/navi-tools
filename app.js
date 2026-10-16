@@ -21,19 +21,37 @@ function formatGridCoordinate(value, isLatitude) {
     const hemisphere = isLatitude
         ? (value < 0 ? "S" : "N")
         : (value < 0 ? "W" : "E");
-    const totalMinuteHundredths = Math.round(Math.abs(value) * 6000);
-    const degrees = Math.floor(totalMinuteHundredths / 6000);
-    const minuteHundredths = totalMinuteHundredths % 6000;
+    const totalMinutes = Math.round(Math.abs(value) * 60);
+    const degrees = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
     const degreeDigits = isLatitude ? 2 : 3;
 
     return (
         hemisphere +
         " " +
         String(degrees).padStart(degreeDigits, "0") +
-        "° " +
-        (minuteHundredths / 100).toFixed(2).padStart(5, "0") +
-        "'"
+        "°" +
+        (minutes ? " " + String(minutes).padStart(2, "0") + "'" : "")
     );
+}
+
+function drawGridLabel(context, label, x, y) {
+    const labelWidth = context.measureText(label).width;
+    const paddingX = 3;
+    const paddingY = 2;
+    const textHeight = 11;
+
+    context.fillStyle = "rgba(255, 255, 255, 0.78)";
+    context.fillRect(
+        x - labelWidth / 2 - paddingX,
+        y - textHeight / 2 - paddingY,
+        labelWidth + paddingX * 2,
+        textHeight + paddingY * 2
+    );
+    context.fillStyle = "rgba(18, 56, 70, 0.95)";
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText(label, x, y);
 }
 
 const CoordinateGrid = L.GridLayer.extend({
@@ -45,6 +63,7 @@ const CoordinateGrid = L.GridLayer.extend({
 
         const context = tile.getContext("2d");
         const step = gridSteps[Math.min(coords.z, gridSteps.length - 1)];
+        const pixelBounds = map.getPixelBounds();
         const tileTopLeft = L.point(coords.x * size.x, coords.y * size.y);
         const tileBottomRight = L.point(
             (coords.x + 1) * size.x,
@@ -57,7 +76,12 @@ const CoordinateGrid = L.GridLayer.extend({
         context.strokeStyle = "rgba(22, 83, 100, 0.45)";
         context.fillStyle = "rgba(18, 56, 70, 0.85)";
         context.lineWidth = 1;
-        context.font = "11px Arial, sans-serif";
+        context.font = "9px Arial, sans-serif";
+        const gridLabelTextHeight = 11;
+        const topBorderY = pixelBounds.min.y - tileTopLeft.y;
+        const bottomBorderY = pixelBounds.max.y - tileTopLeft.y;
+        const leftBorderX = pixelBounds.min.x - tileTopLeft.x;
+        const rightBorderX = pixelBounds.max.x - tileTopLeft.x;
 
         for (
             let longitude = Math.ceil(northWest.lng / step) * step;
@@ -69,13 +93,34 @@ const CoordinateGrid = L.GridLayer.extend({
             context.moveTo(x, 0);
             context.lineTo(x, size.y);
             context.stroke();
-            const label = formatGridCoordinate(longitude, false);
-            const labelWidth = context.measureText(label).width;
-            context.fillText(
-                label,
-                Math.max(2, Math.min(x + 3, size.x - labelWidth - 2)),
-                size.y - 5
-            );
+
+            if (x >= leftBorderX && x <= rightBorderX) {
+                const label = formatGridCoordinate(longitude, false);
+
+                if (topBorderY >= 0 && topBorderY <= size.y) {
+                    drawGridLabel(
+                        context,
+                        label,
+                        x,
+                        Math.min(
+                            size.y - gridLabelTextHeight / 2,
+                            topBorderY + 8
+                        )
+                    );
+                }
+
+                if (bottomBorderY >= 0 && bottomBorderY <= size.y) {
+                    drawGridLabel(
+                        context,
+                        label,
+                        x,
+                        Math.max(
+                            gridLabelTextHeight / 2,
+                            bottomBorderY - 8
+                        )
+                    );
+                }
+            }
         }
 
         for (
@@ -88,11 +133,27 @@ const CoordinateGrid = L.GridLayer.extend({
             context.moveTo(0, y);
             context.lineTo(size.x, y);
             context.stroke();
-            context.fillText(
-                formatGridCoordinate(latitude, true),
-                4,
-                Math.max(12, y - 3)
-            );
+            if (y >= topBorderY && y <= bottomBorderY) {
+                const label = formatGridCoordinate(latitude, true);
+
+                if (leftBorderX >= 0 && leftBorderX <= size.x) {
+                    drawGridLabel(
+                        context,
+                        label,
+                        Math.min(size.x - 20, leftBorderX + 20),
+                        y
+                    );
+                }
+
+                if (rightBorderX >= 0 && rightBorderX <= size.x) {
+                    drawGridLabel(
+                        context,
+                        label,
+                        Math.max(20, rightBorderX - 20),
+                        y
+                    );
+                }
+            }
         }
 
         return tile;
@@ -104,9 +165,17 @@ const coordinateGrid = new CoordinateGrid({
     opacity: 0.7
 });
 
+function redrawCoordinateGridLabels() {
+    coordinateGrid.redraw();
+}
+
 osm.addTo(map);
 seamark.addTo(map);
 coordinateGrid.addTo(map);
+
+map.on("moveend", redrawCoordinateGridLabels);
+map.on("zoomend", redrawCoordinateGridLabels);
+map.on("resize", redrawCoordinateGridLabels);
 
 L.control.layers(
     { "OpenStreetMap": osm },

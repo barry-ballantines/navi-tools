@@ -36,8 +36,10 @@
   to [0, 360)). Keep all visible UI text in English. Display nautical-mile
   distances with `nm` and two decimals; bearings use one decimal and a degree
   symbol.
-- Grid coordinates use `N dd° mm.mm'` / `S dd° mm.mm'` for latitude and
-  `E ddd° mm.mm'` / `W ddd° mm.mm'` for longitude.
+- Grid labels use hemisphere and padded degrees, with rounded whole minutes
+  only when non-zero (for example, `N 30°`, `N 30° 12'`). Center labels over
+  grid lines at the visible map's outer borders, use a translucent background,
+  and redraw the graticule after map movement, zoom, or resize.
 
 ## Workflows and conventions
 - Run `python navitools.py` from the project root: `index.html` lookup and static
