@@ -16,49 +16,78 @@ function createApp() {
     const markers = [];
     const lines = [];
     const handlers = {};
+    const documentHandlers = {};
     const map = {
         setView() { return this; },
         on(event, handler) { handlers[event] = handler; },
         removeLayer(layer) { layers.delete(layer); }
     };
-    function layer(properties = {}) {
-        return {
-            ...properties,
+    class MockLayer {
+        constructor() {
+            this.events = {};
+        }
+
+        on(event, handler) {
+            this.events[event] = handler;
+            return this;
+        }
+
+        fire(event) {
+            if (this.events[event]) {
+                this.events[event]();
+            }
+        }
+
+        addTo() {
+            layers.add(this);
+            return this;
+        }
+
+        setStyle(style) {
+            this.style = style;
+        }
+    }
+    class MockMarker extends MockLayer {
+        constructor(latlng, options) {
+            super();
+            this.latlng = latlng;
+            this.options = options;
+            this.icon = options.icon;
+            this.getLatLng = () => this.latlng;
+            this.dragTo = position => {
+                this.latlng = position;
+                this.fire("drag");
+            };
+            markers.push(this);
+        }
+
+        setIcon(icon) {
+            this.icon = icon;
+        }
+    }
+    class MockPolyline extends MockLayer {
+        constructor(latlngs, options) {
+            super();
+            this.latlngs = latlngs;
+            this.options = options;
+            this.setLatLngs = positions => {
+                this.latlngs = positions;
+            };
+            lines.push(this);
+        }
+    }
+    const L = {
+        Marker: MockMarker,
+        map: () => map,
+        tileLayer: () => ({
             addTo() {
                 layers.add(this);
                 return this;
             }
-        };
-    }
-    const L = {
-        map: () => map,
-        tileLayer: () => layer(),
+        }),
         divIcon: options => options,
-        marker(latlng, options) {
-            const events = {};
-            const marker = layer({
-                latlng,
-                options,
-                getLatLng() { return this.latlng; },
-                on(event, handler) { events[event] = handler; },
-                dragTo(position) {
-                    this.latlng = position;
-                    if (events.drag) {
-                        events.drag();
-                    }
-                }
-            });
-            markers.push(marker);
-            return marker;
-        },
-        polyline(latlngs) {
-            const line = layer({
-                latlngs,
-                setLatLngs(positions) { this.latlngs = positions; }
-            });
-            lines.push(line);
-            return line;
-        }
+        marker: (latlng, options) => new MockMarker(latlng, options),
+        polyline: (latlngs, options) => new MockPolyline(latlngs, options)
     };
     vm.runInNewContext(
         fs.readFileSync(path.join(__dirname, "app.js"), "utf8"),
@@ -66,7 +95,10 @@ function createApp() {
             L,
             document: {
                 getElementById: id => elements[id],
-                querySelectorAll: () => Object.values(elements)
+                querySelectorAll: () => Object.values(elements),
+                addEventListener: (event, handler) => {
+                    documentHandlers[event] = handler;
+                }
             }
         }
     );
@@ -74,7 +106,9 @@ function createApp() {
         elements, markers, lines, layers,
         click: (lat, lng) => handlers.click({ latlng: { lat, lng } }),
         select: id => elements[id].onclick(),
-        text: () => elements.info.innerHTML
+        text: () => elements.info.innerHTML,
+        deleteKey: (key = "Delete", target = { tagName: "BODY" }) =>
+            documentHandlers.keydown({ key, target, preventDefault() {} })
     };
 }
 
@@ -139,4 +173,61 @@ test("clear removes completed and pending points but preserves tile layers", () 
     assert.equal(app.lines.length, 1);
     app.click(0, 1);
     assert.equal(app.lines.length, 2);
+});
+
+test("Delete removes a selected LOS but keeps its endpoint markers", () => {
+    const app = createApp();
+    app.select("losTool");
+    app.click(0, 0);
+    app.click(0, 1);
+
+    app.lines[0].fire("click");
+    assert.equal(app.lines[0].style.color, "orange");
+    assert.equal(app.lines[0].style.weight, 5);
+    app.deleteKey();
+
+    assert.equal(app.layers.has(app.lines[0]), false);
+    assert.equal(app.layers.has(app.markers[0]), true);
+    assert.equal(app.layers.has(app.markers[1]), true);
+    assert.equal(app.text(), "Objekt gelöscht");
+});
+
+test("Delete on a marker removes it and its LOS but keeps the other endpoint", () => {
+    const app = createApp();
+    app.select("losTool");
+    app.click(0, 0);
+    app.click(0, 1);
+
+    app.markers[0].fire("click");
+    assert.match(app.markers[0].icon.className, /measurement-point-selected/);
+    app.deleteKey();
+
+    assert.equal(app.layers.has(app.markers[0]), false);
+    assert.equal(app.layers.has(app.lines[0]), false);
+    assert.equal(app.layers.has(app.markers[1]), true);
+    assert.equal(app.text(), "Objekt gelöscht");
+});
+
+test("Delete removes a selected pending marker without completing a false pair", () => {
+    const app = createApp();
+    app.select("losTool");
+    app.click(0, 0);
+    app.markers[0].fire("click");
+    app.deleteKey();
+    app.click(0, 1);
+
+    assert.equal(app.lines.length, 0);
+    assert.equal(app.layers.has(app.markers[0]), false);
+    assert.equal(app.markers.length, 2);
+});
+
+test("Delete ignores editable controls and other keys", () => {
+    const app = createApp();
+    app.select("losTool");
+    app.click(0, 0);
+    app.markers[0].fire("click");
+    app.deleteKey("Backspace");
+    app.deleteKey("Delete", { tagName: "INPUT" });
+
+    assert.equal(app.layers.has(app.markers[0]), true);
 });

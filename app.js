@@ -21,8 +21,90 @@ seamark.addTo(map);
 let mode = null;
 let points = [];
 let objects = [];
+let measurements = [];
+let selectedObject = null;
 
 const info = document.getElementById("info");
+const pointIcon = selected => L.divIcon({
+    className: selected
+        ? "measurement-point measurement-point-selected"
+        : "measurement-point",
+    iconSize: [24, 24],
+    iconAnchor: [12, 12]
+});
+
+function selectObject(object) {
+    if (selectedObject === object) {
+        return;
+    }
+
+    if (selectedObject) {
+        if (selectedObject instanceof L.Marker) {
+            selectedObject.setIcon(pointIcon(false));
+        } else {
+            selectedObject.setStyle({ color: "red", weight: 3 });
+        }
+    }
+
+    selectedObject = object;
+
+    if (object instanceof L.Marker) {
+        object.setIcon(pointIcon(true));
+    } else {
+        object.setStyle({ color: "orange", weight: 5 });
+    }
+}
+
+function removeObject(object) {
+    if (!objects.includes(object)) {
+        return;
+    }
+
+    const affectedMeasurements = measurements.filter(measurement =>
+        measurement.line === object || measurement.endpoints.includes(object)
+    );
+
+    if (object instanceof L.Marker) {
+        affectedMeasurements.forEach(measurement => {
+            map.removeLayer(measurement.line);
+            objects = objects.filter(item => item !== measurement.line);
+            if (selectedObject === measurement.line) {
+                selectedObject = null;
+            }
+        });
+        measurements = measurements.filter(measurement =>
+            !affectedMeasurements.includes(measurement)
+        );
+        points = points.filter(point => point !== object);
+    } else {
+        measurements = measurements.filter(measurement =>
+            measurement.line !== object
+        );
+    }
+
+    if (selectedObject === object) {
+        selectedObject = null;
+    }
+
+    map.removeLayer(object);
+    objects = objects.filter(item => item !== object);
+    info.innerHTML = "Objekt gelöscht";
+}
+
+document.addEventListener("keydown", event => {
+    if (
+        event.key !== "Delete" ||
+        (event.target && event.target.isContentEditable) ||
+        (event.target && ["INPUT", "TEXTAREA", "SELECT"].includes(event.target.tagName))
+    ) {
+        return;
+    }
+
+    if (selectedObject) {
+        event.preventDefault();
+        removeObject(selectedObject);
+    }
+});
 
 function activateButton(id) {
     document
@@ -45,6 +127,8 @@ document.getElementById("clearTool").onclick = () => {
 
     objects = [];
     points = [];
+    measurements = [];
+    selectedObject = null;
     mode = null;
 
     document
@@ -129,6 +213,7 @@ map.on("click", (e) => {
         }
     ).addTo(map);
 
+    marker.on("click", () => selectObject(marker));
     objects.push(marker);
     points.push(marker);
 
@@ -142,11 +227,15 @@ map.on("click", (e) => {
         endpoints.map(point => point.getLatLng()),
         {
             color: "red",
-            weight: 3
+            weight: 3,
+            bubblingMouseEvents: false
         }
     ).addTo(map);
 
+    line.on("click", () => selectObject(line));
     objects.push(line);
+    const measurement = { endpoints, line };
+    measurements.push(measurement);
 
     function updateMeasurement() {
         const [p1, p2] = endpoints.map(point => point.getLatLng());

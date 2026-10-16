@@ -26,6 +26,11 @@ body {
     cursor: grabbing;
 }
 
+.measurement-point-selected {
+    border-color: orange;
+    background: rgba(255, 165, 0, 0.55);
+}
+
 .toolbar {
     position: absolute;
     top: 10px;

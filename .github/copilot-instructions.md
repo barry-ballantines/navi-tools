@@ -17,9 +17,12 @@
   marker and polyline so the clear handler can remove them without removing tiles.
 - Endpoints use draggable `L.marker` instances with an `L.divIcon` styled by
   `.measurement-point`; disable click bubbling to avoid creating extra points.
-- Each completed pair captures its endpoint markers, line and measurement mode.
+- Each completed pair stores its endpoint markers and line.
   Drag handlers read current marker coordinates and update only that pair's line.
   The shared info panel displays the measurement most recently created or dragged.
+- Click a marker or LOS to select it; Delete removes the selected object.
+  Deleting a marker also removes its connected LOS and keeps the other endpoint;
+  deleting an LOS leaves both markers available for individual deletion.
 - Each LOS measurement displays both `distanceNM` (haversine with a 6,371,000 m
   radius and 1,852 m per nautical mile) and `bearing` (initial bearing normalized
   to [0, 360)). Preserve German UI labels, `sm` units, two distance decimals, and
