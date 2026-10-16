@@ -17,8 +17,9 @@
   These online assets require internet access.
 
 ## Measurement behavior
-- The LOS tool sets `mode` to `los`; two map clicks create a measurement.
-  The active tool stays selected for subsequent pairs.
+- Clicking the LOS tool sets `mode` to `los`; two map clicks create a measurement.
+  Clicking it again turns the tool off without clearing a pending first endpoint;
+  clicking the tool again lets the next map click complete that pair.
 - `points` holds pending endpoint markers; `objects` tracks every measurement
   marker and polyline so the clear handler can remove them without removing tiles.
 - Endpoints use draggable `L.marker` instances with an `L.divIcon` styled by

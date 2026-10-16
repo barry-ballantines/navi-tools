@@ -379,9 +379,22 @@ function activateButton(id) {
 }
 
 document.getElementById("losTool").onclick = () => {
+    if (mode === "los") {
+        mode = null;
+        document
+            .getElementById("losTool")
+            .classList.remove("active");
+        info.innerHTML = points.length
+            ? "LOS tool off<br>Set the next point to continue"
+            : "LOS tool off";
+        return;
+    }
+
     mode = "los";
     activateButton("losTool");
-    info.innerHTML = "LOS active<br>Set point 1";
+    info.innerHTML = points.length
+        ? "LOS active<br>Set the next point"
+        : "LOS active<br>Set point 1";
 };
 
 document.getElementById("clearTool").onclick = () => {

@@ -291,6 +291,36 @@ test("a pending LOS endpoint can move before its line is created", () => {
     assert.equal(app.text(), "<b>LOS</b><br>Distance: 60.04 nm<br>Bearing: 90.0°");
 });
 
+test("clicking the active LOS tool again deactivates it", () => {
+    const app = createApp();
+
+    app.select("losTool");
+    app.click(0, 0);
+    assert.equal(app.markers.length, 1);
+    app.select("losTool");
+    app.click(0, 1);
+
+    assert.equal(app.markers.length, 1);
+    assert.equal(app.lines.length, 0);
+    assert.equal(app.layers.has(app.markers[0]), true);
+    assert.equal(app.text(), "LOS tool off<br>Set the next point to continue");
+});
+
+test("the LOS tool can be reactivated to finish a pending pair", () => {
+    const app = createApp();
+
+    app.select("losTool");
+    app.click(0, 0);
+    app.select("losTool");
+    app.select("losTool");
+
+    assert.equal(app.text(), "LOS active<br>Set the next point");
+    app.click(0, 1);
+    assert.equal(app.lines.length, 1);
+    assert.equal(app.lines[0].latlngs[0].lng, 0);
+    assert.equal(app.lines[0].latlngs[1].lng, 1);
+});
+
 test("dragging either endpoint updates its line, distance, and bearing", () => {
     const app = createApp();
     app.select("losTool");
