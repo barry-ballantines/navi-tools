@@ -13,6 +13,41 @@ body {
     height: 100%;
 }
 
+.compass-rose {
+    position: absolute;
+    right: 10px;
+    bottom: 38px;
+    z-index: 1000;
+    width: 240px;
+    height: 240px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.4);
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.2);
+    pointer-events: none;
+}
+
+.compass-rose img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.compass-variation {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    padding: 3px 5px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0);
+    color: #b00060;
+    font-size: 10px;
+    line-height: 1.3;
+    text-align: center;
+    white-space: nowrap;
+}
+
 .measurement-point {
     box-sizing: border-box;
     border: 3px solid blue;
@@ -78,4 +113,17 @@ button:hover {
     min-width: 220px;
 
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+}
+
+@media (max-width: 600px) {
+    .compass-rose {
+        right: 5px;
+        bottom: 38px;
+        width: 160px;
+        height: 160px;
+    }
+
+    .compass-variation {
+        font-size: 9px;
+    }
 }

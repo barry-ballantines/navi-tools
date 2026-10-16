@@ -15,8 +15,96 @@ const seamark = L.tileLayer(
     }
 );
 
+const gridSteps = [180, 90, 45, 30, 15, 6, 3, 2, 1, 0.5, 0.25, 0.1, 0.05, 0.02, 0.01, 0.005];
+
+function formatGridCoordinate(value, isLatitude, step) {
+    const decimals = Math.min(4, Math.max(0, Math.ceil(-Math.log10(step))));
+    const absolute = Math.abs(value).toFixed(decimals);
+    const hemisphere = isLatitude
+        ? (value < 0 ? "S" : "N")
+        : (value < 0 ? "W" : "E");
+
+    return absolute + "°" + hemisphere;
+}
+
+const CoordinateGrid = L.GridLayer.extend({
+    createTile(coords) {
+        const size = this.getTileSize();
+        const tile = document.createElement("canvas");
+        tile.width = size.x;
+        tile.height = size.y;
+
+        const context = tile.getContext("2d");
+        const step = gridSteps[Math.min(coords.z, gridSteps.length - 1)];
+        const tileTopLeft = L.point(coords.x * size.x, coords.y * size.y);
+        const tileBottomRight = L.point(
+            (coords.x + 1) * size.x,
+            (coords.y + 1) * size.y
+        );
+        const northWest = map.unproject(tileTopLeft, coords.z);
+        const southEast = map.unproject(tileBottomRight, coords.z);
+        const tileOffset = L.point(coords.x * size.x, coords.y * size.y);
+
+        context.strokeStyle = "rgba(22, 83, 100, 0.45)";
+        context.fillStyle = "rgba(18, 56, 70, 0.85)";
+        context.lineWidth = 1;
+        context.font = "11px Arial, sans-serif";
+
+        for (
+            let longitude = Math.ceil(northWest.lng / step) * step;
+            longitude <= southEast.lng;
+            longitude += step
+        ) {
+            const x = map.project(L.latLng(0, longitude), coords.z).x - tileOffset.x;
+            context.beginPath();
+            context.moveTo(x, 0);
+            context.lineTo(x, size.y);
+            context.stroke();
+            context.fillText(
+                formatGridCoordinate(longitude, false, step),
+                Math.min(x + 3, size.x - 38),
+                size.y - 5
+            );
+        }
+
+        for (
+            let latitude = Math.ceil(southEast.lat / step) * step;
+            latitude <= northWest.lat;
+            latitude += step
+        ) {
+            const y = map.project(L.latLng(latitude, 0), coords.z).y - tileOffset.y;
+            context.beginPath();
+            context.moveTo(0, y);
+            context.lineTo(size.x, y);
+            context.stroke();
+            context.fillText(
+                formatGridCoordinate(latitude, true, step),
+                4,
+                Math.max(12, y - 3)
+            );
+        }
+
+        return tile;
+    }
+});
+
+const coordinateGrid = new CoordinateGrid({
+    pane: "overlayPane",
+    opacity: 0.7
+});
+
 osm.addTo(map);
 seamark.addTo(map);
+coordinateGrid.addTo(map);
+
+L.control.layers(
+    { "OpenStreetMap": osm },
+    {
+        "Seezeichen (OpenSeaMap)": seamark,
+        "Breiten-/Längengrad": coordinateGrid
+    },
+    { collapsed: true }
+).addTo(map);
 
 let mode = null;
 let points = [];
@@ -25,6 +113,57 @@ let measurements = [];
 let selectedObject = null;
 
 const info = document.getElementById("info");
+const magneticCompassRose = document.getElementById("magCompassRose");
+const magneticVariationText = document.getElementById("magCompassTextTop");
+const annualVariationText = document.getElementById("magCompassTextBottom");
+const magneticModelUrl =
+    "https://raw.githubusercontent.com/boxpet/pygeomag/2b8ac57f08bc100ee1f103dbca4e1a8de65ff5e8/pygeomag/wmm/WMM_2025.COF";
+let magneticModelPromise;
+
+async function updateMagneticVariation() {
+    try {
+        if (!magneticModelPromise) {
+            magneticModelPromise = fetch(magneticModelUrl)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error("WMM2025 model request failed: " + response.status);
+                    }
+                    return response.text();
+                })
+                .then(coefficientFile => geoMagFactory(cof2Obj(coefficientFile)));
+        }
+
+        const geoMag = await magneticModelPromise;
+        const center = map.getCenter();
+        const now = new Date();
+        const nextYear = new Date(now);
+        nextYear.setFullYear(nextYear.getFullYear() + 1);
+        const variation = geoMag(center.lat, center.lng, 0, now).dec;
+        const nextVariation = geoMag(center.lat, center.lng, 0, nextYear).dec;
+
+        magneticCompassRose.style.transform = "rotate(" + variation.toFixed(1) + "deg)";
+        magneticVariationText.textContent =
+            "VAR " +
+            Math.abs(variation).toFixed(1) +
+            "°" +
+            (variation >= 0 ? "E" : "W") +
+            " (" +
+            now.getFullYear() +
+            ")";
+        annualVariationText.textContent =
+            "ANNUAL " +
+            (nextVariation >= variation ? "INCREASE " : "DECREASE ") +
+            (Math.abs(nextVariation - variation) * 60).toFixed(0) +
+            "'";
+    } catch (error) {
+        console.error("Magnetic variation could not be calculated.", error);
+        magneticVariationText.textContent = "Missweisung nicht verfügbar";
+        annualVariationText.textContent = "WMM2025";
+    }
+}
+
+map.on("moveend", updateMagneticVariation);
+const magneticVariationUpdate = updateMagneticVariation();
 const pointIcon = selected => L.divIcon({
     className: selected
         ? "measurement-point measurement-point-selected"

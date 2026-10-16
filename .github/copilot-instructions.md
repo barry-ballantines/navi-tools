@@ -9,6 +9,10 @@
   `style.css` controls the full-screen map, floating panels and point handles.
 - OpenStreetMap supplies base tiles; OpenSeaMap supplies the seamark overlay.
   Both layers are added at startup. Leaflet assets and tiles require internet access.
+- `app.js` also adds a Leaflet canvas graticule and layer switcher. OpenSeaMap
+  compass-rose SVGs and geomagjs scripts are loaded in `index.html`; geomagjs
+  calculates declination using pinned WMM2025 coefficients fetched from
+  PyGeoMag's NOAA model data. These online assets require internet access.
 
 ## Measurement behavior
 - The LOS tool sets `mode` to `los`; two map clicks create a measurement.
