@@ -24,12 +24,51 @@ function createApp() {
     const documentHandlers = {};
     const layerControl = {};
     const gridDrawOperations = [];
+    const magneticLocations = [];
     const currentYear = new Date().getFullYear();
+    const compassHandlers = {};
+    const compassStyle = {};
+    const compass = {
+        style: compassStyle,
+        offsetWidth: 240,
+        offsetHeight: 240,
+        classList: { add() {}, remove() {} },
+        addEventListener(event, handler) {
+            compassHandlers[event] = handler;
+        },
+        setPointerCapture() {},
+        getBoundingClientRect() {
+            return {
+                left: parseFloat(compassStyle.left) || 100,
+                top: parseFloat(compassStyle.top) || 100,
+                width: 240,
+                height: 240
+            };
+        }
+    };
+    let mapDraggingDisabled = false;
     const map = {
         setView() { return this; },
         on(event, handler) { handlers[event] = handler; },
         removeLayer(layer) { layers.delete(layer); },
         getCenter() { return { lat: 54, lng: 10 }; },
+        getContainer() {
+            return {
+                getBoundingClientRect: () => ({
+                    left: 0, top: 0, width: 1000, height: 800
+                })
+            };
+        },
+        containerPointToLatLng(point) {
+            return {
+                lat: 54 + (point.y - 220) / 100,
+                lng: 10 + (point.x - 220) / 100
+            };
+        },
+        dragging: {
+            disable() { mapDraggingDisabled = true; },
+            enable() { mapDraggingDisabled = false; }
+        },
         unproject(point) { return { lat: 85 - point.y / 256, lng: point.x / 256 }; },
         project(latlng) { return { x: latlng.lng * 256, y: (85 - latlng.lat) * 256 }; }
     };
@@ -132,7 +171,8 @@ function createApp() {
     const sandboxContext = {
         L,
         document: {
-            getElementById: id => elements[id],
+            getElementById: id => id === "compassRose" ? compass : elements[id],
+            querySelector: selector => selector === ".compass-rose" ? compass : null,
             querySelectorAll: () => Object.values(elements),
             createElement: tagName => ({
                 tagName,
@@ -153,9 +193,10 @@ function createApp() {
             text: () => Promise.resolve("WMM2025")
         }),
         cof2Obj: text => text,
-        geoMagFactory: () => (lat, lng, altitude, date) => ({
-            dec: 5 + (date.getFullYear() - currentYear) * 0.1
-        }),
+        geoMagFactory: () => (lat, lng, altitude, date) => {
+            magneticLocations.push({ lat, lng });
+            return { dec: 5 + (date.getFullYear() - currentYear) * 0.1 };
+        },
         console: { error() {} }
     };
     vm.runInNewContext(
@@ -164,13 +205,32 @@ function createApp() {
     );
     return {
         elements, markers, lines, layers, layerControl, gridDrawOperations,
+        compass, compassStyle, magneticLocations,
+        mapDraggingDisabled: () => mapDraggingDisabled,
         ready: () => vm.runInNewContext("magneticVariationUpdate", sandboxContext),
         grid: () => vm.runInNewContext("coordinateGrid", sandboxContext),
         click: (lat, lng) => handlers.click({ latlng: { lat, lng } }),
         select: id => elements[id].onclick(),
         text: () => elements.info.innerHTML,
         deleteKey: (key = "Delete", target = { tagName: "BODY" }) =>
-            documentHandlers.keydown({ key, target, preventDefault() {} })
+            documentHandlers.keydown({ key, target, preventDefault() {} }),
+        dragCompass: async () => {
+            compassHandlers.pointerdown({
+                button: 0,
+                pointerType: "mouse",
+                pointerId: 1,
+                clientX: 120,
+                clientY: 120,
+                preventDefault() {}
+            });
+            compassHandlers.pointermove({
+                pointerId: 1,
+                clientX: 220,
+                clientY: 320
+            });
+            compassHandlers.pointerup({ pointerId: 1 });
+            await vm.runInNewContext("magneticVariationUpdate", sandboxContext);
+        }
     };
 }
 
@@ -263,6 +323,19 @@ test("the compass shows WMM2025 magnetic variation and annual change", async () 
     );
     assert.equal(app.elements.magCompassTextBottom.textContent, "ANNUAL INCREASE 6'");
     assert.equal(app.elements.magCompassRose.style.transform, "rotate(5.0deg)");
+});
+
+test("dragging the compass recalculates variation at its new center location", async () => {
+    const app = createApp();
+    await app.ready();
+    assert.deepEqual(app.magneticLocations[0], { lat: 54, lng: 10 });
+
+    await app.dragCompass();
+
+    assert.equal(app.compassStyle.left, "200px");
+    assert.equal(app.compassStyle.top, "300px");
+    assert.equal(app.mapDraggingDisabled(), false);
+    assert.deepEqual(app.magneticLocations.at(-1), { lat: 56, lng: 11 });
 });
 
 test("Delete removes a selected LOS but keeps its endpoint markers", () => {

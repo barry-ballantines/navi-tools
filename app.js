@@ -113,6 +113,7 @@ let measurements = [];
 let selectedObject = null;
 
 const info = document.getElementById("info");
+const compassRose = document.querySelector(".compass-rose");
 const magneticCompassRose = document.getElementById("magCompassRose");
 const magneticVariationText = document.getElementById("magCompassTextTop");
 const annualVariationText = document.getElementById("magCompassTextBottom");
@@ -134,12 +135,18 @@ async function updateMagneticVariation() {
         }
 
         const geoMag = await magneticModelPromise;
-        const center = map.getCenter();
+        const roseBounds = compassRose.getBoundingClientRect();
+        const mapBounds = map.getContainer().getBoundingClientRect();
+        const roseCenter = L.point(
+            roseBounds.left + roseBounds.width / 2 - mapBounds.left,
+            roseBounds.top + roseBounds.height / 2 - mapBounds.top
+        );
+        const location = map.containerPointToLatLng(roseCenter);
         const now = new Date();
         const nextYear = new Date(now);
         nextYear.setFullYear(nextYear.getFullYear() + 1);
-        const variation = geoMag(center.lat, center.lng, 0, now).dec;
-        const nextVariation = geoMag(center.lat, center.lng, 0, nextYear).dec;
+        const variation = geoMag(location.lat, location.lng, 0, now).dec;
+        const nextVariation = geoMag(location.lat, location.lng, 0, nextYear).dec;
 
         magneticCompassRose.style.transform = "rotate(" + variation.toFixed(1) + "deg)";
         magneticVariationText.textContent =
@@ -161,6 +168,65 @@ async function updateMagneticVariation() {
         annualVariationText.textContent = "WMM2025";
     }
 }
+
+let compassDrag = null;
+
+compassRose.addEventListener("pointerdown", event => {
+    if (event.button !== 0 && event.pointerType === "mouse") {
+        return;
+    }
+
+    const roseBounds = compassRose.getBoundingClientRect();
+    const mapBounds = map.getContainer().getBoundingClientRect();
+    compassRose.style.left = roseBounds.left - mapBounds.left + "px";
+    compassRose.style.top = roseBounds.top - mapBounds.top + "px";
+    compassRose.style.right = "auto";
+    compassRose.style.bottom = "auto";
+    compassDrag = {
+        pointerId: event.pointerId,
+        offsetX: event.clientX - roseBounds.left,
+        offsetY: event.clientY - roseBounds.top
+    };
+    compassRose.setPointerCapture(event.pointerId);
+    map.dragging.disable();
+    compassRose.classList.add("dragging");
+    event.preventDefault();
+});
+
+compassRose.addEventListener("pointermove", event => {
+    if (!compassDrag || event.pointerId !== compassDrag.pointerId) {
+        return;
+    }
+
+    const mapBounds = map.getContainer().getBoundingClientRect();
+    const maxLeft = mapBounds.width - compassRose.offsetWidth;
+    const maxTop = mapBounds.height - compassRose.offsetHeight;
+    const left = Math.max(
+        0,
+        Math.min(maxLeft, event.clientX - mapBounds.left - compassDrag.offsetX)
+    );
+    const top = Math.max(
+        0,
+        Math.min(maxTop, event.clientY - mapBounds.top - compassDrag.offsetY)
+    );
+
+    compassRose.style.left = left + "px";
+    compassRose.style.top = top + "px";
+});
+
+function finishCompassDrag(event) {
+    if (!compassDrag || event.pointerId !== compassDrag.pointerId) {
+        return;
+    }
+
+    compassDrag = null;
+    map.dragging.enable();
+    compassRose.classList.remove("dragging");
+    updateMagneticVariation();
+}
+
+compassRose.addEventListener("pointerup", finishCompassDrag);
+compassRose.addEventListener("pointercancel", finishCompassDrag);
 
 map.on("moveend", updateMagneticVariation);
 const magneticVariationUpdate = updateMagneticVariation();
