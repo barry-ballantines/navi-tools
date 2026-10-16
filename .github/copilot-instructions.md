@@ -1,0 +1,37 @@
+# Project guide
+
+## Architecture
+- This is a small, static nautical map application; there is no framework or bundler.
+- `navitools.py` only serves the current directory on port 8000 and opens a browser.
+  It does not implement an API or store measurements.
+- `index.html` loads Leaflet 1.9.4 from unpkg before loading `app.js`.
+- `app.js` owns the Leaflet map, toolbar handlers, measurement state and calculations;
+  `style.css` controls the full-screen map, floating panels and point handles.
+- OpenStreetMap supplies base tiles; OpenSeaMap supplies the seamark overlay.
+  Both layers are added at startup. Leaflet assets and tiles require internet access.
+
+## Measurement behavior
+- Toolbar tools set `mode` to `distance`, `bearing` or `los`; two map clicks
+  create a measurement. The active tool stays selected for subsequent pairs.
+- `points` holds pending endpoint markers; `objects` tracks every measurement
+  marker and polyline so the clear handler can remove them without removing tiles.
+- Endpoints use draggable `L.marker` instances with an `L.divIcon` styled by
+  `.measurement-point`; disable click bubbling to avoid creating extra points.
+- Each completed pair captures its endpoint markers, line and measurement mode.
+  Drag handlers read current marker coordinates and update only that pair's line.
+  The shared info panel displays the measurement most recently created or dragged.
+- `distanceNM` uses haversine distance with a 6,371,000 m radius and 1,852 m per
+  nautical mile; `bearing` returns initial bearing normalized to [0, 360).
+- Preserve German UI labels, `sm` distance units, two decimal places for distance,
+  and one decimal place with a degree symbol for bearing.
+
+## Workflows and conventions
+- Run `python navitools.py` from the project root: `index.html` lookup and static
+  serving are relative to the working directory. Browse to `http://localhost:8000`.
+- There is no package manifest, dependency installation step or build command.
+- Run the JavaScript regression tests with `node --test app.test.js` (Node 18+).
+  They execute `app.js` using lightweight DOM/Leaflet doubles, not a real browser.
+- Browser-check map clicks, endpoint dragging, updated readouts and clear behavior;
+  unit tests do not validate Leaflet's actual pointer interactions or tile loading.
+- Keep the existing plain-script structure, four-space indentation, double-quoted
+  JavaScript strings and DOM IDs shared between `index.html` and `app.js`.
