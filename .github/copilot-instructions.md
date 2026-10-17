@@ -3,7 +3,8 @@
 ## Architecture
 - This is a small, static nautical map application; there is no framework or bundler.
 - `navitools.py` only serves the current directory on port 8000 and opens a browser.
-  It does not implement an API or store measurements.
+  It does not implement an API or store navigation data; the browser app persists
+  navigation state in origin-specific local storage.
 - `index.html` loads Leaflet 1.9.4 from unpkg before loading `app.js`.
 - `app.js` owns the Leaflet map, toolbar handlers, navigation state and calculations;
   `style.css` controls the full-screen map, floating panels and point handles.
@@ -34,7 +35,9 @@
 - Show each point's label above its symbol and its live position below it in a
   small font, formatted as `N dd° mm.m' E ddd° mm.m'` with matching S/W
   hemispheres. Refresh map labels when points or their derived positions change,
-  and escape user-provided labels before inserting them into marker HTML.
+  and escape user-provided labels before inserting them into marker HTML. While
+  dragging a FIX, update route geometry without rebuilding point or line label
+  icons; refresh those labels and the selected FIX info on `dragend`.
 - Center each line's rounded, three-digit true-bearing label above the directed
   line and its one-decimal nautical-mile distance below it, at the projected line
   midpoint. Rotate both labels to follow the line while keeping text upright and
@@ -51,9 +54,17 @@
   Selecting a line shows editable bearing and distance. Confirm
   deletion and keep references valid; deleting a point/line with dependent DRs
   must clearly confirm the dependent cascade before removing those objects.
+- Persist the navigation graph in versioned browser local storage after every
+  completed FIX/DR/line mutation, including FIX drag end. Store point identity,
+  type, label, coordinates, line references, bearing/distance, and numbering
+  counters; rebuild Leaflet layers and recompute derived DR coordinates during
+  startup restore. Clear removes the saved graph. Validate stored data before
+  rebuilding it, preserve invalid or unwritable stored data, and display storage
+  read/write failures to the user rather than silently discarding navigation data.
 - Keep all visible UI text in English. Test FIX placement/editing/dragging, DR
   creation from FIX and DR, bearing/distance calculations, downstream propagation,
-  validation, and deletion/cancellation behavior.
+  validation, deletion/cancellation behavior, persistence across reloads, and
+  storage failure reporting.
 
 ## Map overlay behavior
 - Grid labels use hemisphere and padded degrees, with rounded whole minutes

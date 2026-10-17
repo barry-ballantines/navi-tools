@@ -193,6 +193,10 @@ let objects = [];
 let selectedObject = null;
 let nextFixNumber = 1;
 let nextDrNumber = 1;
+let nextPointId = 1;
+let nextLineId = 1;
+let isRestoringNavigationState = false;
+const navigationStorageKey = "navi-tools.navigation.v1";
 
 const infoMessage = document.getElementById("infoMessage");
 const pointInfo = document.getElementById("pointInfo");
@@ -538,19 +542,35 @@ function destinationPoint(start, bearingDegrees, distanceNM) {
     };
 }
 
-function updateLineAndDescendants(line) {
+function updateLineAndDescendants(line, updateLabels = true) {
     const start = line.startPoint.latlng;
     const end = destinationPoint(start, line.bearing, line.distanceNM);
     line.endPoint.latlng = end;
     line.endPoint.marker.setLatLng(end);
-    line.endPoint.marker.setIcon(
-        pointIcon(line.endPoint, line.endPoint === selectedObject)
-    );
+    if (updateLabels) {
+        line.endPoint.marker.setIcon(
+            pointIcon(line.endPoint, line.endPoint === selectedObject)
+        );
+    }
     line.layer.setLatLngs([start, end]);
-    updateLineAnnotation(line);
+    if (updateLabels) {
+        updateLineAnnotation(line);
+    }
     navigationLines
         .filter(candidate => candidate.startPoint === line.endPoint)
-        .forEach(updateLineAndDescendants);
+        .forEach(child => updateLineAndDescendants(child, updateLabels));
+}
+
+function refreshLineLabelsFromPoint(point) {
+    navigationLines
+        .filter(line => line.startPoint === point)
+        .forEach(line => {
+            line.endPoint.marker.setIcon(
+                pointIcon(line.endPoint, line.endPoint === selectedObject)
+            );
+            updateLineAnnotation(line);
+            refreshLineLabelsFromPoint(line.endPoint);
+        });
 }
 
 function lineAnnotationIcon(line, angle, flipped) {
@@ -606,8 +626,15 @@ map.on("moveend", updateLineAnnotations);
 map.on("zoomend", updateLineAnnotations);
 map.on("resize", updateLineAnnotations);
 
-function createPoint(type, latlng, label) {
-    const point = { type, label, latlng, marker: null, incomingLine: null };
+function createPoint(type, latlng, label, id) {
+    const point = {
+        id: id || "point-" + nextPointId++,
+        type,
+        label,
+        latlng,
+        marker: null,
+        incomingLine: null
+    };
     const isFix = type === "FIX";
     point.marker = L.marker(latlng, {
         draggable: isFix,
@@ -620,13 +647,17 @@ function createPoint(type, latlng, label) {
     if (isFix) {
         point.marker.on("drag", () => {
             point.latlng = point.marker.getLatLng();
-            point.marker.setIcon(pointIcon(point, point === selectedObject));
             navigationLines
                 .filter(line => line.startPoint === point)
-                .forEach(updateLineAndDescendants);
+                .forEach(line => updateLineAndDescendants(line, false));
+        });
+        point.marker.on("dragend", () => {
+            point.marker.setIcon(pointIcon(point, point === selectedObject));
+            refreshLineLabelsFromPoint(point);
             if (selectedObject === point) {
                 showPointInfo(point);
             }
+            persistNavigationState();
         });
     }
     points.push(point);
@@ -634,13 +665,16 @@ function createPoint(type, latlng, label) {
     return point;
 }
 
-function createDrLine(startPoint, bearingDegrees, distanceNM) {
+function createDrLine(startPoint, bearingDegrees, distanceNM, options = {}) {
+    const endPointLabel = options.endPointLabel || "DR " + nextDrNumber++;
     const endPoint = createPoint(
         "DR",
         destinationPoint(startPoint.latlng, bearingDegrees, distanceNM),
-        "DR " + nextDrNumber++
+        endPointLabel,
+        options.endPointId
     );
     const line = {
+        id: options.id || "line-" + nextLineId++,
         startPoint,
         endPoint,
         bearing: bearingDegrees,
@@ -667,7 +701,229 @@ function createDrLine(startPoint, bearingDegrees, distanceNM) {
     objects.push(line.layer);
     objects.push(line.annotation);
     updateLineAnnotation(line);
-    selectObject(endPoint);
+    if (options.selectEndPoint !== false) {
+        selectObject(endPoint);
+    }
+    persistNavigationState();
+    return line;
+}
+
+function showStorageError(action, error) {
+    const detail = error && error.message ? ": " + error.message : "";
+    console.error("Navigation data " + action + " failed", error);
+    setInfoMessage("Navigation data " + action + " failed" + detail);
+}
+
+function serializeNavigationState() {
+    return {
+        version: 1,
+        nextFixNumber,
+        nextDrNumber,
+        nextPointId,
+        nextLineId,
+        points: points.map(point => ({
+            id: point.id,
+            type: point.type,
+            label: point.label,
+            lat: point.latlng.lat,
+            lng: point.latlng.lng
+        })),
+        lines: navigationLines.map(line => ({
+            id: line.id,
+            startPointId: line.startPoint.id,
+            endPointId: line.endPoint.id,
+            bearing: line.bearing,
+            distanceNM: line.distanceNM
+        }))
+    };
+}
+
+function persistNavigationState() {
+    if (isRestoringNavigationState) {
+        return;
+    }
+    try {
+        window.localStorage.setItem(
+            navigationStorageKey,
+            JSON.stringify(serializeNavigationState())
+        );
+    } catch (error) {
+        showStorageError("save", error);
+    }
+}
+
+function validateStoredNavigationState(state) {
+    const invalid = message => {
+        throw new Error("Saved navigation data is invalid: " + message);
+    };
+    if (
+        !state ||
+        state.version !== 1 ||
+        !Array.isArray(state.points) ||
+        !Array.isArray(state.lines) ||
+        !Number.isInteger(state.nextFixNumber) ||
+        state.nextFixNumber < 1 ||
+        !Number.isInteger(state.nextDrNumber) ||
+        state.nextDrNumber < 1 ||
+        !Number.isInteger(state.nextPointId) ||
+        state.nextPointId < 1 ||
+        !Number.isInteger(state.nextLineId) ||
+        state.nextLineId < 1
+    ) {
+        invalid("unsupported format or counters");
+    }
+
+    const pointsById = new Map();
+    let highestPointId = 0;
+    state.points.forEach(point => {
+        const pointIdMatch = point && /^point-(\d+)$/.exec(point.id);
+        if (
+            !pointIdMatch ||
+            pointsById.has(point.id) ||
+            !["FIX", "DR"].includes(point.type) ||
+            typeof point.label !== "string" ||
+            !point.label.trim() ||
+            !Number.isFinite(point.lat) ||
+            point.lat < -90 ||
+            point.lat > 90 ||
+            !Number.isFinite(point.lng) ||
+            point.lng < -180 ||
+            point.lng > 180
+        ) {
+            invalid("point record");
+        }
+        highestPointId = Math.max(highestPointId, Number(pointIdMatch[1]));
+        pointsById.set(point.id, point);
+    });
+    if (state.nextPointId <= highestPointId) {
+        invalid("point counter");
+    }
+
+    const lineIds = new Set();
+    const incomingCounts = new Map();
+    let highestLineId = 0;
+    state.lines.forEach(line => {
+        const lineIdMatch = line && /^line-(\d+)$/.exec(line.id);
+        const startPoint = line && pointsById.get(line.startPointId);
+        const endPoint = line && pointsById.get(line.endPointId);
+        if (
+            !lineIdMatch ||
+            lineIds.has(line.id) ||
+            !startPoint ||
+            !endPoint ||
+            endPoint.type !== "DR" ||
+            !Number.isFinite(line.bearing) ||
+            line.bearing < 0 ||
+            line.bearing >= 360 ||
+            !Number.isFinite(line.distanceNM) ||
+            line.distanceNM <= 0
+        ) {
+            invalid("line record");
+        }
+        highestLineId = Math.max(highestLineId, Number(lineIdMatch[1]));
+        lineIds.add(line.id);
+        incomingCounts.set(
+            line.endPointId,
+            (incomingCounts.get(line.endPointId) || 0) + 1
+        );
+    });
+    if (state.nextLineId <= highestLineId) {
+        invalid("line counter");
+    }
+    pointsById.forEach(point => {
+        const incomingCount = incomingCounts.get(point.id) || 0;
+        if ((point.type === "FIX" && incomingCount !== 0) ||
+            (point.type === "DR" && incomingCount !== 1)) {
+            invalid("point-to-line relationships");
+        }
+    });
+
+    const reachablePoints = new Set(
+        state.points.filter(point => point.type === "FIX").map(point => point.id)
+    );
+    const pendingLines = state.lines.slice();
+    let previousCount = -1;
+    while (pendingLines.length && pendingLines.length !== previousCount) {
+        previousCount = pendingLines.length;
+        for (let index = pendingLines.length - 1; index >= 0; index -= 1) {
+            const line = pendingLines[index];
+            if (reachablePoints.has(line.startPointId)) {
+                reachablePoints.add(line.endPointId);
+                pendingLines.splice(index, 1);
+            }
+        }
+    }
+    if (pendingLines.length || reachablePoints.size !== pointsById.size) {
+        invalid("cyclic or disconnected route");
+    }
+    return pointsById;
+}
+
+function restoreNavigationState() {
+    let serialized;
+    try {
+        serialized = window.localStorage.getItem(navigationStorageKey);
+    } catch (error) {
+        showStorageError("load", error);
+        return;
+    }
+    if (serialized === null) {
+        return;
+    }
+
+    let state;
+    try {
+        state = JSON.parse(serialized);
+        validateStoredNavigationState(state);
+    } catch (error) {
+        showStorageError("load", error);
+        return;
+    }
+
+    isRestoringNavigationState = true;
+    try {
+        nextFixNumber = state.nextFixNumber;
+        nextDrNumber = state.nextDrNumber;
+        nextPointId = state.nextPointId;
+        nextLineId = state.nextLineId;
+        const restoredPoints = new Map();
+        state.points
+            .filter(point => point.type === "FIX")
+            .forEach(point => {
+                restoredPoints.set(
+                    point.id,
+                    createPoint("FIX", { lat: point.lat, lng: point.lng }, point.label, point.id)
+                );
+            });
+
+        const pendingLines = state.lines.slice();
+        while (pendingLines.length) {
+            const readyIndex = pendingLines.findIndex(line =>
+                restoredPoints.has(line.startPointId)
+            );
+            const savedLine = pendingLines.splice(readyIndex, 1)[0];
+            const endPointData = state.points.find(
+                point => point.id === savedLine.endPointId
+            );
+            const line = createDrLine(
+                restoredPoints.get(savedLine.startPointId),
+                savedLine.bearing,
+                savedLine.distanceNM,
+                {
+                    id: savedLine.id,
+                    endPointId: endPointData.id,
+                    endPointLabel: endPointData.label,
+                    selectEndPoint: false
+                }
+            );
+            restoredPoints.set(endPointData.id, line.endPoint);
+        }
+        updateSelectionStyle();
+    } catch (error) {
+        showStorageError("restore", error);
+    } finally {
+        isRestoringNavigationState = false;
+    }
 }
 
 function activateButton(id) {
@@ -726,6 +982,7 @@ function applyPointEdits(event) {
     }
     selectedObject.marker.setIcon(pointIcon(selectedObject, true));
     showPointInfo(selectedObject);
+    persistNavigationState();
 }
 
 function applyLineEdits(event) {
@@ -753,6 +1010,7 @@ function applyLineEdits(event) {
     selectedObject.distanceNM = distance;
     updateLineAndDescendants(selectedObject);
     showLineInfo(selectedObject);
+    persistNavigationState();
 }
 
 function collectDescendantLines(point, result) {
@@ -815,6 +1073,7 @@ function deleteSelectedObject() {
     selectedObject = null;
     updateSelectionStyle();
     setInfoMessage("Object and dependent DRs deleted");
+    persistNavigationState();
 }
 
 document.addEventListener("keydown", event => {
@@ -883,9 +1142,16 @@ document.getElementById("clearTool").onclick = () => {
     drPopup.hidden = true;
     nextFixNumber = 1;
     nextDrNumber = 1;
+    nextPointId = 1;
+    nextLineId = 1;
     activateButton(null);
     updateSelectionStyle();
-    setInfoMessage("Cleared");
+    try {
+        window.localStorage.removeItem(navigationStorageKey);
+        setInfoMessage("Cleared");
+    } catch (error) {
+        showStorageError("clear", error);
+    }
 };
 
 map.on("click", event => {
@@ -894,4 +1160,7 @@ map.on("click", event => {
     }
     const point = createPoint("FIX", event.latlng, "FIX " + nextFixNumber++);
     selectObject(point);
+    persistNavigationState();
 });
+
+restoreNavigationState();

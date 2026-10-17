@@ -4,7 +4,7 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 
-function createApp() {
+function createApp(options = {}) {
     const eventHandlers = {};
     const element = id => ({
         id,
@@ -66,6 +66,27 @@ function createApp() {
     const compassStyle = {};
     const compassClasses = new Set();
     const confirmations = [];
+    const storageValues = options.storageValues || new Map();
+    const storage = options.storage || {
+        getItem(key) {
+            if (options.failStorageRead) {
+                throw new Error("storage read denied");
+            }
+            return storageValues.has(key) ? storageValues.get(key) : null;
+        },
+        setItem(key, value) {
+            if (options.failStorageWrite) {
+                throw new Error("storage write denied");
+            }
+            storageValues.set(key, value);
+        },
+        removeItem(key) {
+            if (options.failStorageWrite) {
+                throw new Error("storage write denied");
+            }
+            storageValues.delete(key);
+        }
+    };
     let confirmResult = true;
     const compass = {
         style: compassStyle,
@@ -162,11 +183,14 @@ function createApp() {
                 this.latlng = position;
                 this.fire("drag");
             };
+            this.endDrag = () => this.fire("dragend");
+            this.iconHistory = [options.icon];
             markers.push(this);
         }
 
         setIcon(icon) {
             this.icon = icon;
+            this.iconHistory.push(icon);
         }
 
         setLatLng(latlng) {
@@ -291,7 +315,8 @@ function createApp() {
             confirm(message) {
                 confirmations.push(message);
                 return confirmResult;
-            }
+            },
+            localStorage: storage
         }
     };
     vm.runInNewContext(
@@ -300,6 +325,8 @@ function createApp() {
     );
     return {
         elements,
+        storage,
+        storageValues,
         get markers() {
             return markers.filter(marker =>
                 Object.hasOwn(marker.options, "draggable")
@@ -335,6 +362,10 @@ function createApp() {
             handlers.click.forEach(handler =>
                 handler({ latlng: { lat, lng } })
             ),
+        endDrag: index =>
+            markers.filter(marker =>
+                Object.hasOwn(marker.options, "draggable")
+            )[index].endDrag(),
         select: id => elements[id].onclick(),
         submit: id => eventHandlers[id + ":submit"]({
             preventDefault() {}
@@ -523,6 +554,34 @@ test("a DR can start another leg and FIX movement propagates through the course"
     assert.ok(Math.abs(app.markers[2].getLatLng().lat - 11) < 0.003);
     assert.ok(Math.abs(app.lines[0].latlngs[0].lng - 20) < 0.001);
     assert.equal(app.lines[1].latlngs[0], app.markers[1].getLatLng());
+});
+
+test("FIX dragging updates geometry immediately and defers label refresh until drag end", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    app.select("drTool");
+    app.elements.drBearing.value = "90";
+    app.elements.drDistance.value = "60";
+    app.submit("drForm");
+
+    const fixIconBeforeDrag = app.markers[0].icon;
+    const drIconBeforeDrag = app.markers[1].icon;
+    const annotationIconBeforeDrag = app.annotations[0].icon;
+    app.markers[0].dragTo({ lat: 10, lng: 20 });
+
+    assert.equal(app.markers[0].icon, fixIconBeforeDrag);
+    assert.equal(app.markers[1].icon, drIconBeforeDrag);
+    assert.equal(app.annotations[0].icon, annotationIconBeforeDrag);
+    assert.equal(app.lines[0].latlngs[0].lat, 10);
+    assert.ok(Math.abs(app.markers[1].getLatLng().lat - 10) < 0.003);
+
+    app.endDrag(0);
+
+    assert.notEqual(app.markers[0].icon, fixIconBeforeDrag);
+    assert.notEqual(app.markers[1].icon, drIconBeforeDrag);
+    assert.notEqual(app.annotations[0].icon, annotationIconBeforeDrag);
+    assert.match(app.markers[0].icon.html, /N 10° 00\.0'/);
 });
 
 test("a FIX can branch into multiple DR legs and coordinate edits update both", () => {
@@ -842,4 +901,90 @@ test("Delete ignores editable controls and other keys", () => {
 
     assert.equal(app.layers.has(app.markers[0]), true);
     assert.equal(app.confirmations.length, 0);
+});
+
+test("navigation points, branches, edits, and counters survive app reloads", () => {
+    const firstSession = createApp();
+    firstSession.select("fixTool");
+    firstSession.click(10, 20);
+    firstSession.elements.pointLabel.value = "Harbor";
+    firstSession.elements.pointPosition.value =
+        "N 10° 00.000' - E 020° 00.000'";
+    firstSession.submit("pointInfo");
+
+    firstSession.select("drTool");
+    firstSession.elements.drBearing.value = "90";
+    firstSession.elements.drDistance.value = "60";
+    firstSession.submit("drForm");
+    firstSession.select("drTool");
+    firstSession.elements.drBearing.value = "0";
+    firstSession.elements.drDistance.value = "60";
+    firstSession.submit("drForm");
+    firstSession.markers[0].fire("click");
+    firstSession.select("drTool");
+    firstSession.elements.drBearing.value = "180";
+    firstSession.elements.drDistance.value = "10";
+    firstSession.submit("drForm");
+
+    firstSession.markers[0].dragTo({ lat: 11, lng: 21 });
+    firstSession.endDrag(0);
+    firstSession.lines[0].fire("click");
+    firstSession.elements.lineBearing.value = "45";
+    firstSession.elements.lineDistance.value = "12.5";
+    firstSession.submit("lineInfo");
+
+    const restored = createApp({ storageValues: firstSession.storageValues });
+    assert.equal(restored.markers.length, 4);
+    assert.equal(restored.lines.length, 3);
+    assert.deepEqual(
+        restored.markers.map(marker => marker.options.alt),
+        ["Harbor", "DR 1", "DR 2", "DR 3"]
+    );
+    assert.equal(restored.markers[0].getLatLng().lat, 11);
+    assert.equal(restored.markers[0].getLatLng().lng, 21);
+    assert.equal(restored.lines[0].latlngs[0], restored.markers[0].getLatLng());
+    assert.equal(restored.markers[1].getLatLng().lat, firstSession.markers[1].getLatLng().lat);
+
+    restored.markers[0].fire("click");
+    restored.select("drTool");
+    restored.elements.drBearing.value = "0";
+    restored.elements.drDistance.value = "1";
+    restored.submit("drForm");
+    assert.equal(restored.markers.at(-1).options.alt, "DR 4");
+
+    restored.select("fixTool");
+    restored.click(30, 40);
+    assert.equal(restored.markers.at(-1).options.alt, "FIX 2");
+});
+
+test("clear removes saved navigation data as well as map objects", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(1, 2);
+    assert.equal(app.storageValues.size, 1);
+
+    app.select("clearTool");
+
+    assert.equal(app.storageValues.size, 0);
+    const reloaded = createApp({ storageValues: app.storageValues });
+    assert.equal(reloaded.markers.length, 0);
+    assert.equal(reloaded.lines.length, 0);
+});
+
+test("storage read, write, and invalid-data failures are shown to the user", () => {
+    const readFailure = createApp({ failStorageRead: true });
+    assert.match(readFailure.text(), /Navigation data load failed/);
+
+    const writeFailure = createApp({ failStorageWrite: true });
+    writeFailure.select("fixTool");
+    writeFailure.click(1, 2);
+    assert.match(writeFailure.text(), /Navigation data save failed/);
+
+    const storageValues = new Map([
+        ["navi-tools.navigation.v1", "{not valid JSON"]
+    ]);
+    const invalidState = createApp({ storageValues });
+    assert.equal(invalidState.markers.length, 0);
+    assert.match(invalidState.text(), /Navigation data load failed/);
+    assert.equal(storageValues.get("navi-tools.navigation.v1"), "{not valid JSON");
 });
