@@ -35,6 +35,10 @@
   small font, formatted as `N dd° mm.m' E ddd° mm.m'` with matching S/W
   hemispheres. Refresh map labels when points or their derived positions change,
   and escape user-provided labels before inserting them into marker HTML.
+- Center each line's rounded, three-digit true-bearing label above the directed
+  line and its one-decimal nautical-mile distance below it, at the projected line
+  midpoint. Rotate both labels to follow the line while keeping text upright and
+  preserving the above/below sides relative to the start-to-end direction.
 - Store each line's start and end point, true bearing, and distance. Compute its
   DR endpoint with a great-circle destination calculation using a 6,371,000 m
   Earth radius and 1,852 m per nautical mile. Editing a FIX or a line recomputes

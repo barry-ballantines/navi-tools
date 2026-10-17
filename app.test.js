@@ -120,7 +120,11 @@ function createApp() {
             enable() { mapDraggingDisabled = false; }
         },
         unproject(point) { return { lat: 85 - point.y / 256, lng: point.x / 256 }; },
-        project(latlng) { return { x: latlng.lng * 256, y: (85 - latlng.lat) * 256 }; }
+        project(latlng) { return { x: latlng.lng * 256, y: (85 - latlng.lat) * 256 }; },
+        latLngToLayerPoint(latlng) { return this.project(latlng); },
+        layerPointToLatLng(point) {
+            return { lat: 85 - point.y / 256, lng: point.x / 256 };
+        }
     };
     class MockLayer {
         constructor() {
@@ -295,7 +299,16 @@ function createApp() {
         sandboxContext
     );
     return {
-        elements, markers, lines, layers, layerControl, gridDrawOperations,
+        elements,
+        get markers() {
+            return markers.filter(marker =>
+                Object.hasOwn(marker.options, "draggable")
+            );
+        },
+        get annotations() {
+            return markers.filter(marker => marker.options.interactive === false);
+        },
+        lines, layers, layerControl, gridDrawOperations,
         gridLabels, gridLabelPositions, gridBackgrounds,
         gridFont: () => gridState.font,
         gridRedraws: () => gridState.redraws,
@@ -445,6 +458,48 @@ test("DR leg creation rejects invalid bearing or non-positive distance", () => {
     app.elements.drDistance.value = "0";
     app.submit("drForm");
     assert.equal(app.lines.length, 0);
+});
+
+test("DR line annotations show centered bearing and distance labels", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    app.select("drTool");
+    app.elements.drBearing.value = "12";
+    app.elements.drDistance.value = "2.56";
+    app.submit("drForm");
+
+    const annotation = app.annotations[0];
+    assert.equal(annotation.options.interactive, false);
+    assert.equal(annotation.latlng.lng, app.lines[0].latlngs[1].lng / 2);
+    assert.match(annotation.icon.html, /line-annotation-bearing">012°/);
+    assert.match(annotation.icon.html, /line-annotation-distance">2\.6 nm/);
+    assert.match(annotation.icon.html, /rotate\(-\d+\.\d{2}deg\)/);
+    assert.equal(app.layers.has(annotation), true);
+});
+
+test("DR annotations update after leg edits and keep labels upright westbound", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    app.select("drTool");
+    app.elements.drBearing.value = "90";
+    app.elements.drDistance.value = "2";
+    app.submit("drForm");
+    const annotation = app.annotations[0];
+
+    app.lines[0].fire("click");
+    app.elements.lineBearing.value = "270";
+    app.elements.lineDistance.value = "4.25";
+    app.submit("lineInfo");
+
+    assert.match(annotation.icon.html, /line-annotation-bearing">270°/);
+    assert.match(annotation.icon.html, /line-annotation-distance">4\.3 nm/);
+    assert.match(annotation.icon.html, /line-annotation-flipped/);
+    assert.equal(
+        annotation.latlng.lng,
+        (app.lines[0].latlngs[0].lng + app.lines[0].latlngs[1].lng) / 2
+    );
 });
 
 test("a DR can start another leg and FIX movement propagates through the course", () => {
@@ -728,12 +783,14 @@ test("deleting a selected DR removes its defining line and confirms", () => {
     app.elements.drBearing.value = "90";
     app.elements.drDistance.value = "60";
     app.submit("drForm");
+    const annotation = app.annotations[0];
     app.deleteKey();
 
     assert.equal(app.confirmations.length, 1);
     assert.equal(app.layers.has(app.markers[0]), true);
     assert.equal(app.layers.has(app.markers[1]), false);
     assert.equal(app.layers.has(app.lines[0]), false);
+    assert.equal(app.layers.has(annotation), false);
     assert.equal(app.text(), "Object and dependent DRs deleted");
 });
 

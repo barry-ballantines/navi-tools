@@ -547,10 +547,64 @@ function updateLineAndDescendants(line) {
         pointIcon(line.endPoint, line.endPoint === selectedObject)
     );
     line.layer.setLatLngs([start, end]);
+    updateLineAnnotation(line);
     navigationLines
         .filter(candidate => candidate.startPoint === line.endPoint)
         .forEach(updateLineAndDescendants);
 }
+
+function lineAnnotationIcon(line, angle, flipped) {
+    const bearing = String(Math.round(line.bearing) % 360).padStart(3, "0") + "°";
+    const sideClass = flipped
+        ? " line-annotation-flipped"
+        : "";
+
+    return L.divIcon({
+        className: "line-annotation-icon",
+        html:
+            '<span class="line-annotation-content' +
+            sideClass +
+            '" style="transform: translate(-50%, -50%) rotate(' +
+            angle.toFixed(2) +
+            'deg)"><span class="line-annotation-bearing">' +
+            bearing +
+            '</span><span class="line-annotation-distance">' +
+            line.distanceNM.toFixed(1) +
+            " nm</span></span>",
+        iconSize: [0, 0],
+        iconAnchor: [0, 0]
+    });
+}
+
+function updateLineAnnotation(line) {
+    if (!line.annotation) {
+        return;
+    }
+
+    const start = map.latLngToLayerPoint(line.startPoint.latlng);
+    const end = map.latLngToLayerPoint(line.endPoint.latlng);
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const rawAngle = Math.atan2(dy, dx) * 180 / Math.PI;
+    const flipped = rawAngle > 90 || rawAngle < -90;
+    const angle = flipped
+        ? rawAngle + (rawAngle > 90 ? -180 : 180)
+        : rawAngle;
+    const midpoint = map.layerPointToLatLng(
+        L.point((start.x + end.x) / 2, (start.y + end.y) / 2)
+    );
+
+    line.annotation.setLatLng(midpoint);
+    line.annotation.setIcon(lineAnnotationIcon(line, angle, flipped));
+}
+
+function updateLineAnnotations() {
+    navigationLines.forEach(updateLineAnnotation);
+}
+
+map.on("moveend", updateLineAnnotations);
+map.on("zoomend", updateLineAnnotations);
+map.on("resize", updateLineAnnotations);
 
 function createPoint(type, latlng, label) {
     const point = { type, label, latlng, marker: null, incomingLine: null };
@@ -596,10 +650,23 @@ function createDrLine(startPoint, bearingDegrees, distanceNM) {
             { color: "red", weight: 3, bubblingMouseEvents: false }
         ).addTo(map)
     };
+    line.annotation = L.marker(startPoint.latlng, {
+        icon: L.divIcon({
+            className: "line-annotation-icon",
+            html: "",
+            iconSize: [0, 0],
+            iconAnchor: [0, 0]
+        }),
+        interactive: false,
+        keyboard: false,
+        bubblingMouseEvents: false
+    }).addTo(map);
     endPoint.incomingLine = line;
     line.layer.on("click", () => selectObject(line));
     navigationLines.push(line);
     objects.push(line.layer);
+    objects.push(line.annotation);
+    updateLineAnnotation(line);
     selectObject(endPoint);
 }
 
@@ -733,10 +800,13 @@ function deleteSelectedObject() {
         return;
     }
 
-    affectedLines.forEach(line => map.removeLayer(line.layer));
+    affectedLines.forEach(line => {
+        map.removeLayer(line.layer);
+        map.removeLayer(line.annotation);
+    });
     affectedPoints.forEach(point => map.removeLayer(point.marker));
     const removedLayers = new Set([
-        ...Array.from(affectedLines, line => line.layer),
+        ...Array.from(affectedLines, line => [line.layer, line.annotation]).flat(),
         ...Array.from(affectedPoints, point => point.marker)
     ]);
     objects = objects.filter(object => !removedLayers.has(object));
