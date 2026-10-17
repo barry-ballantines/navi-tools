@@ -49,14 +49,51 @@
 </div>
 
 <div class="toolbar">
-    <button id="losTool">LOS Line</button>
+    <button id="fixTool">FIX</button>
+    <button id="drTool" disabled>DR</button>
     <button id="clearTool">Clear</button>
 </div>
 
 <div class="info" id="info">
-    Select a tool<br>
-    Drag points to move them<br>
-    Click an object and press Delete to remove it
+    <div id="infoMessage">
+        Select FIX to place a fix<br>
+        Select a point, then DR to create a dead-reckoning leg<br>
+        Click an object and press Delete to remove it
+    </div>
+    <form id="pointInfo" hidden>
+        <strong id="pointType"></strong>
+        <label>Label <input id="pointLabel" type="text" required></label>
+        <label>Latitude <input id="pointLat" type="number" step="any" required></label>
+        <label>Longitude <input id="pointLng" type="number" step="any" required></label>
+        <button type="submit">Apply</button>
+    </form>
+    <form id="lineInfo" hidden>
+        <strong id="lineTitle">DR leg</strong>
+        <label>True bearing (°)
+            <input id="lineBearing" type="number" min="0" max="360" step="any" required>
+        </label>
+        <label>Distance (nm)
+            <input id="lineDistance" type="number" min="0" step="any" required>
+        </label>
+        <button type="submit">Apply</button>
+    </form>
+</div>
+
+<div id="drPopup" class="tool-popup" hidden>
+    <form id="drForm">
+        <strong>Create DR leg from <span id="drStartLabel"></span></strong>
+        <label>True bearing (0°–360°)
+            <input id="drBearing" type="number" min="0" max="360" step="any" required>
+        </label>
+        <label>Distance (nm)
+            <input id="drDistance" type="number" min="0" step="any" required>
+        </label>
+        <div id="drError" role="alert"></div>
+        <div class="popup-actions">
+            <button type="submit">OK</button>
+            <button id="drCancel" type="button">Cancel</button>
+        </div>
+    </form>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

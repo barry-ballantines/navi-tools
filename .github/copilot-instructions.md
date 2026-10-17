@@ -5,7 +5,7 @@
 - `navitools.py` only serves the current directory on port 8000 and opens a browser.
   It does not implement an API or store measurements.
 - `index.html` loads Leaflet 1.9.4 from unpkg before loading `app.js`.
-- `app.js` owns the Leaflet map, toolbar handlers, measurement state and calculations;
+- `app.js` owns the Leaflet map, toolbar handlers, navigation state and calculations;
   `style.css` controls the full-screen map, floating panels and point handles.
 - OpenStreetMap supplies base tiles; OpenSeaMap supplies the seamark overlay.
   Both layers are added at startup. Leaflet assets and tiles require internet access.
@@ -16,26 +16,36 @@
   map location beneath its center when moved, resized, or when the map is panned.
   These online assets require internet access.
 
-## Measurement behavior
-- Clicking the LOS tool sets `mode` to `los`; two map clicks create a measurement.
-  Clicking it again turns the tool off without clearing a pending first endpoint;
-  clicking the tool again lets the next map click complete that pair.
-- `points` holds pending endpoint markers; `objects` tracks every measurement
-  marker and polyline so the clear handler can remove them without removing tiles.
-- Endpoints use draggable `L.marker` instances with an `L.divIcon` styled by
-  `.measurement-point`; disable click bubbling to avoid creating extra points.
-- Each completed pair stores its endpoint markers and line.
-  Drag handlers read current marker coordinates and update only that pair's line.
-  The shared info panel displays the measurement most recently created or dragged.
-- Click a marker or LOS to select it; Delete removes the selected object.
-  Deleting a marker also removes its connected LOS and reuses the other endpoint
-  as the first point for a new LOS; deleting an LOS leaves both markers available
-  for individual deletion.
-- Each LOS measurement displays both `distanceNM` (haversine with a 6,371,000 m
-  radius and 1,852 m per nautical mile) and `bearing` (initial bearing normalized
-  to [0, 360)). Keep all visible UI text in English. Display nautical-mile
-  distances with `nm` and two decimals; bearings use one decimal and a degree
-  symbol.
+## Navigation tools
+- Keep navigation data separate from Leaflet layers so points can be shared as the
+  start of multiple directed lines. The toolbar has FIX and DR tools; do not
+  reintroduce the retired LOS tool.
+- FIX stays active for map placement and labels new fixes `FIX 1`, `FIX 2`, etc.
+  FIX positions are authoritative and can be edited in the lower-left info panel
+  or moved by dragging. Render a FIX as a small circle with a center dot.
+- Enable DR only when a FIX or DR is selected. DR opens an inline popup for a true
+  bearing from 0° through 360° and a positive distance in nautical miles. On OK,
+  create a directed line from the selected point to a new derived point named
+  `DR 1`, `DR 2`, etc. The new DR can start another leg. Render DRs as half-circles
+  with center dots; they are selectable but cannot be moved or directly edited.
+- Keep navigation marker roots absolutely positioned as required by Leaflet; use
+  pseudo-elements for symbol artwork without overriding the marker's positioning,
+  so the icon anchor, center dot, and line endpoint remain coincident.
+- Store each line's start and end point, true bearing, and distance. Compute its
+  DR endpoint with a great-circle destination calculation using a 6,371,000 m
+  Earth radius and 1,852 m per nautical mile. Editing a FIX or a line recomputes
+  downstream DRs and their lines; a FIX may branch into multiple DR legs. Each DR
+  has exactly one defining inbound line.
+- Selecting a FIX or DR shows its label and coordinates in the lower-left info
+  panel; FIX coordinates and labels are editable, while DR coordinates are
+  read-only. Selecting a line shows editable bearing and distance. Confirm
+  deletion and keep references valid; deleting a point/line with dependent DRs
+  must clearly confirm the dependent cascade before removing those objects.
+- Keep all visible UI text in English. Test FIX placement/editing/dragging, DR
+  creation from FIX and DR, bearing/distance calculations, downstream propagation,
+  validation, and deletion/cancellation behavior.
+
+## Map overlay behavior
 - Grid labels use hemisphere and padded degrees, with rounded whole minutes
   only when non-zero (for example, `N 30°`, `N 30° 12'`). Center labels over
   grid lines at the visible map's outer borders, use a translucent background,
@@ -47,7 +57,8 @@
 - There is no package manifest, dependency installation step or build command.
 - Run the JavaScript regression tests with `node --test app.test.js` (Node 18+).
   They execute `app.js` using lightweight DOM/Leaflet doubles, not a real browser.
-- Browser-check map clicks, endpoint dragging, updated readouts and clear behavior;
-  unit tests do not validate Leaflet's actual pointer interactions or tile loading.
+- Browser-check FIX placement, dragging, DR popup entry, updated derived positions,
+  selection, and clear behavior; unit tests do not validate Leaflet's actual
+  pointer interactions or tile loading.
 - Keep the existing plain-script structure, four-space indentation, double-quoted
   JavaScript strings and DOM IDs shared between `index.html` and `app.js`.

@@ -5,23 +5,46 @@ const test = require("node:test");
 const vm = require("node:vm");
 
 function createApp() {
+    const eventHandlers = {};
+    const element = id => ({
+        id,
+        innerHTML: "",
+        textContent: "",
+        value: "",
+        style: {},
+        hidden: false,
+        disabled: false,
+        tagName: id.toLowerCase().includes("bearing") ||
+            id.toLowerCase().includes("distance") ||
+            id.toLowerCase().includes("label") ||
+            id.toLowerCase().includes("lat") ||
+            id.toLowerCase().includes("lng")
+            ? "INPUT"
+            : "DIV",
+        classList: { add() {}, remove() {} },
+        addEventListener(event, handler) {
+            eventHandlers[id + ":" + event] = handler;
+        },
+        focus() {}
+    });
     const elements = Object.fromEntries(
         [
-            "info", "losTool", "clearTool", "magCompassRose",
-            "magCompassTextTop", "magCompassTextBottom"
+            "info", "infoMessage", "fixTool", "drTool", "clearTool",
+            "pointInfo", "pointType", "pointLabel", "pointLat", "pointLng",
+            "lineInfo", "lineBearing", "lineDistance", "drPopup", "drForm",
+            "drStartLabel", "drBearing", "drDistance", "drError", "drCancel",
+            "magCompassRose", "magCompassTextTop", "magCompassTextBottom"
         ]
-            .map(id => [id, {
-                innerHTML: "",
-                textContent: "",
-                style: {},
-                classList: { add() {}, remove() {} }
-            }])
+            .map(id => [id, element(id)])
     );
+    elements.pointInfo.hidden = true;
+    elements.lineInfo.hidden = true;
+    elements.drPopup.hidden = true;
+    elements.drTool.disabled = true;
     const layers = new Set();
     const markers = [];
     const lines = [];
     const handlers = {};
-    const documentHandlers = {};
     const layerControl = {};
     const gridDrawOperations = [];
     const gridLabels = [];
@@ -43,6 +66,8 @@ function createApp() {
     const compassHandlers = {};
     const compassStyle = {};
     const compassClasses = new Set();
+    const confirmations = [];
+    let confirmResult = true;
     const compass = {
         style: compassStyle,
         get offsetWidth() {
@@ -140,6 +165,11 @@ function createApp() {
         setIcon(icon) {
             this.icon = icon;
         }
+
+        setLatLng(latlng) {
+            this.latlng = latlng;
+            return this;
+        }
     }
     class MockPolyline extends MockLayer {
         constructor(latlngs, options) {
@@ -205,6 +235,9 @@ function createApp() {
             getElementById: id => id === "compassRose" ? compass : elements[id],
             querySelector: selector => selector === ".compass-rose" ? compass : null,
             querySelectorAll: () => Object.values(elements),
+            addEventListener: (event, handler) => {
+                eventHandlers["document:" + event] = handler;
+            },
             createElement: tagName => {
                 const element = {
                     tagName,
@@ -238,9 +271,6 @@ function createApp() {
                     })
                 };
                 return element;
-            },
-            addEventListener: (event, handler) => {
-                documentHandlers[event] = handler;
             }
         },
         fetch: () => Promise.resolve({
@@ -253,6 +283,13 @@ function createApp() {
             return { dec: 5 + (date.getFullYear() - currentYear) * 0.1 };
         },
         console: { error() {} }
+        ,
+        window: {
+            confirm(message) {
+                confirmations.push(message);
+                return confirmResult;
+            }
+        }
     };
     vm.runInNewContext(
         fs.readFileSync(path.join(__dirname, "app.js"), "utf8"),
@@ -268,6 +305,11 @@ function createApp() {
         mapDraggingDisabled: () => mapDraggingDisabled,
         ready: () => vm.runInNewContext("magneticVariationUpdate", sandboxContext),
         grid: () => vm.runInNewContext("coordinateGrid", sandboxContext),
+        elements,
+        confirmations,
+        setConfirmResult: result => {
+            confirmResult = result;
+        },
         fireMapEvent: event => handlers[event].forEach(handler => handler()),
         setGridPixelBounds: pixelBounds => {
             gridState.pixelBounds = pixelBounds;
@@ -282,9 +324,17 @@ function createApp() {
                 handler({ latlng: { lat, lng } })
             ),
         select: id => elements[id].onclick(),
-        text: () => elements.info.innerHTML,
+        submit: id => eventHandlers[id + ":submit"]({
+            preventDefault() {}
+        }),
+        text: () => elements.infoMessage.textContent,
         deleteKey: (key = "Delete", target = { tagName: "BODY" }) =>
-            documentHandlers.keydown({ key, target, preventDefault() {} }),
+            eventHandlers["document:keydown"]({
+                key,
+                target,
+                preventDefault() {},
+                defaultPrevented: false
+            }),
         dragCompass: async () => {
             compassHandlers.pointerdown({
                 button: 0,
@@ -327,97 +377,159 @@ function createApp() {
     };
 }
 
-test("a pending LOS endpoint can move before its line is created", () => {
+test("FIX tool places named, draggable FIX points only while active", () => {
     const app = createApp();
     app.click(0, 0);
     assert.equal(app.markers.length, 0);
-    app.select("losTool");
+    app.select("fixTool");
     app.click(0, 0);
-    assert.equal(app.markers[0].options.draggable, true);
-    assert.equal(app.markers[0].options.bubblingMouseEvents, false);
-    assert.equal(app.markers[0].options.icon.iconSize.join(","), "24,24");
-    app.markers[0].dragTo({ lat: 0, lng: 1 });
-    app.click(0, 2);
-    assert.equal(app.lines[0].latlngs[0].lng, 1);
-    assert.equal(app.text(), "<b>LOS</b><br>Distance: 60.04 nm<br>Bearing: 90.0°");
-});
+    app.click(1, 2);
 
-test("clicking the active LOS tool again deactivates it", () => {
-    const app = createApp();
-
-    app.select("losTool");
-    app.click(0, 0);
-    assert.equal(app.markers.length, 1);
-    app.select("losTool");
-    app.click(0, 1);
-
-    assert.equal(app.markers.length, 1);
-    assert.equal(app.lines.length, 0);
-    assert.equal(app.layers.has(app.markers[0]), true);
-    assert.equal(app.text(), "LOS tool off<br>Set the next point to continue");
-});
-
-test("the LOS tool can be reactivated to finish a pending pair", () => {
-    const app = createApp();
-
-    app.select("losTool");
-    app.click(0, 0);
-    app.select("losTool");
-    app.select("losTool");
-
-    assert.equal(app.text(), "LOS active<br>Set the next point");
-    app.click(0, 1);
-    assert.equal(app.lines.length, 1);
-    assert.equal(app.lines[0].latlngs[0].lng, 0);
-    assert.equal(app.lines[0].latlngs[1].lng, 1);
-});
-
-test("dragging either endpoint updates its line, distance, and bearing", () => {
-    const app = createApp();
-    app.select("losTool");
-    app.click(0, 0);
-    app.click(0, 1);
-    app.markers[1].dragTo({ lat: 0, lng: 2 });
-    assert.equal(app.lines[0].latlngs[1].lng, 2);
-    assert.equal(app.text(), "<b>LOS</b><br>Distance: 120.08 nm<br>Bearing: 90.0°");
-    app.markers[0].dragTo({ lat: 0, lng: 1 });
-    assert.equal(app.lines[0].latlngs[0].lng, 1);
-    assert.equal(app.text(), "<b>LOS</b><br>Distance: 60.04 nm<br>Bearing: 90.0°");
     assert.equal(app.markers.length, 2);
+    assert.equal(app.markers[0].options.draggable, true);
+    assert.equal(app.markers[0].icon.className, "navigation-point navigation-point-fix");
+    assert.equal(app.markers[1].options.alt, "FIX 2");
+    assert.equal(app.lines.length, 0);
+    assert.equal(app.text(), "");
+    assert.equal(app.elements.pointLabel.value, "FIX 2");
 });
 
-test("dragging an older LOS measurement does not move a newer line", () => {
+test("DR is enabled for a selected point and creates a named DR leg", () => {
     const app = createApp();
-    app.select("losTool");
+    app.select("fixTool");
     app.click(0, 0);
-    app.click(0, 1);
-    assert.equal(app.text(), "<b>LOS</b><br>Distance: 60.04 nm<br>Bearing: 90.0°");
-    app.click(10, 10);
-    app.click(11, 10);
-    const newerLine = app.lines[1].latlngs;
-    app.markers[1].dragTo({ lat: 1, lng: 0 });
-    assert.equal(app.text(), "<b>LOS</b><br>Distance: 60.04 nm<br>Bearing: 0.0°");
-    assert.equal(app.lines[1].latlngs, newerLine);
-    app.markers[3].dragTo({ lat: 10, lng: 11 });
-    assert.equal(app.text(), "<b>LOS</b><br>Distance: 59.13 nm<br>Bearing: 89.9°");
-});
+    assert.equal(app.elements.drTool.disabled, false);
 
-test("clear removes completed and pending points but preserves tile layers", () => {
-    const app = createApp();
-    app.select("losTool");
-    app.click(0, 0);
-    app.click(0, 1);
-    app.click(1, 1);
-    app.select("clearTool");
-    assert.equal(app.layers.size, 3);
-    assert.equal(app.text(), "Cleared");
-    app.click(2, 2);
-    assert.equal(app.markers.length, 3);
-    app.select("losTool");
-    app.click(0, 0);
+    app.select("drTool");
+    assert.equal(app.elements.drPopup.hidden, false);
+    assert.equal(app.elements.drStartLabel.textContent, "FIX 1");
+    app.elements.drBearing.value = "90";
+    app.elements.drDistance.value = "60.04";
+    app.submit("drForm");
+
+    assert.equal(app.elements.drPopup.hidden, true);
+    assert.equal(app.markers.length, 2);
+    assert.equal(app.markers[1].options.draggable, false);
+    assert.equal(app.markers[1].options.alt, "DR 1");
+    assert.equal(app.markers[1].icon.className, "navigation-point navigation-point-dr navigation-point-selected");
     assert.equal(app.lines.length, 1);
-    app.click(0, 1);
+    assert.equal(app.lines[0].latlngs[0].lat, 0);
+    assert.ok(Math.abs(app.lines[0].latlngs[1].lng - 1) < 0.001);
+    assert.equal(app.elements.pointLabel.value, "DR 1");
+    assert.equal(app.elements.drTool.disabled, false);
+});
+
+test("DR leg creation rejects invalid bearing or non-positive distance", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    app.select("drTool");
+    app.elements.drBearing.value = "361";
+    app.elements.drDistance.value = "10";
+    app.submit("drForm");
+
+    assert.equal(app.elements.drPopup.hidden, false);
+    assert.match(app.elements.drError.textContent, /bearing/);
+    assert.equal(app.lines.length, 0);
+
+    app.elements.drBearing.value = "";
+    app.elements.drDistance.value = "10";
+    app.submit("drForm");
+    assert.equal(app.lines.length, 0);
+
+    app.elements.drBearing.value = "0";
+    app.elements.drDistance.value = "0";
+    app.submit("drForm");
+    assert.equal(app.lines.length, 0);
+});
+
+test("a DR can start another leg and FIX movement propagates through the course", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    app.select("drTool");
+    app.elements.drBearing.value = "90";
+    app.elements.drDistance.value = "60";
+    app.submit("drForm");
+    app.select("drTool");
+    app.elements.drBearing.value = "0";
+    app.elements.drDistance.value = "60";
+    app.submit("drForm");
+
+    assert.equal(app.markers.length, 3);
     assert.equal(app.lines.length, 2);
+    app.markers[0].dragTo({ lat: 10, lng: 20 });
+
+    assert.ok(Math.abs(app.markers[1].getLatLng().lat - 10) < 0.003);
+    assert.ok(Math.abs(app.markers[2].getLatLng().lat - 11) < 0.003);
+    assert.ok(Math.abs(app.lines[0].latlngs[0].lng - 20) < 0.001);
+    assert.equal(app.lines[1].latlngs[0], app.markers[1].getLatLng());
+});
+
+test("a FIX can branch into multiple DR legs and coordinate edits update both", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    app.select("drTool");
+    app.elements.drBearing.value = "90";
+    app.elements.drDistance.value = "60";
+    app.submit("drForm");
+
+    app.markers[0].fire("click");
+    app.select("drTool");
+    app.elements.drBearing.value = "0";
+    app.elements.drDistance.value = "60";
+    app.submit("drForm");
+    assert.equal(app.lines.length, 2);
+
+    app.markers[0].fire("click");
+    app.elements.pointLat.value = "10";
+    app.elements.pointLng.value = "20";
+    app.submit("pointInfo");
+
+    assert.ok(Math.abs(app.lines[0].latlngs[0].lat - 10) < 0.001);
+    assert.ok(Math.abs(app.lines[1].latlngs[0].lng - 20) < 0.001);
+    assert.ok(Math.abs(app.markers[1].getLatLng().lat - 10) < 0.003);
+    assert.ok(Math.abs(app.markers[2].getLatLng().lat - 11) < 0.003);
+});
+
+test("editing a DR leg recalculates its endpoint", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    app.select("drTool");
+    app.elements.drBearing.value = "90";
+    app.elements.drDistance.value = "60";
+    app.submit("drForm");
+    app.lines[0].fire("click");
+    app.elements.lineBearing.value = "0";
+    app.elements.lineDistance.value = "60";
+    app.submit("lineInfo");
+
+    assert.ok(Math.abs(app.markers[1].getLatLng().lat - 1) < 0.001);
+    assert.ok(Math.abs(app.markers[1].getLatLng().lng) < 0.001);
+});
+
+test("clear removes navigation objects but preserves map layers", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    app.select("drTool");
+    app.elements.drBearing.value = "90";
+    app.elements.drDistance.value = "60";
+    app.submit("drForm");
+    app.select("clearTool");
+
+    assert.equal(app.layers.size, 3);
+    assert.equal(app.markers.length, 2);
+    assert.equal(app.lines.length, 1);
+    assert.equal(app.text(), "Cleared");
+    assert.equal(app.elements.drTool.disabled, true);
+
+    app.select("fixTool");
+    app.click(1, 1);
+    assert.equal(app.markers.length, 3);
+    assert.equal(app.markers[2].options.alt, "FIX 1");
 });
 
 test("OpenSeaMap seamarks and the coordinate grid are enabled as overlays", () => {
@@ -562,82 +674,69 @@ test("resizing the compass updates its size and variation at the resized center"
     assert.deepEqual(app.magneticLocations.at(-1), { lat: 54.5, lng: 10.5 });
 });
 
-test("Delete removes a selected LOS but keeps its endpoint markers", () => {
+test("deleting a selected DR removes its defining line and confirms", () => {
     const app = createApp();
-    app.select("losTool");
+    app.select("fixTool");
     app.click(0, 0);
-    app.click(0, 1);
-
-    app.lines[0].fire("click");
-    assert.equal(app.lines[0].style.color, "orange");
-    assert.equal(app.lines[0].style.weight, 5);
+    app.select("drTool");
+    app.elements.drBearing.value = "90";
+    app.elements.drDistance.value = "60";
+    app.submit("drForm");
     app.deleteKey();
 
+    assert.equal(app.confirmations.length, 1);
+    assert.equal(app.layers.has(app.markers[0]), true);
+    assert.equal(app.layers.has(app.markers[1]), false);
     assert.equal(app.layers.has(app.lines[0]), false);
+    assert.equal(app.text(), "Object and dependent DRs deleted");
+});
+
+test("deleting a FIX cascades through dependent DRs and lines", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    app.select("drTool");
+    app.elements.drBearing.value = "90";
+    app.elements.drDistance.value = "60";
+    app.submit("drForm");
+    app.select("drTool");
+    app.elements.drBearing.value = "0";
+    app.elements.drDistance.value = "60";
+    app.submit("drForm");
+    app.markers[0].fire("click");
+    app.deleteKey();
+
+    assert.match(app.confirmations[0], /dependent DR point/);
+    assert.equal(app.layers.has(app.markers[0]), false);
+    assert.equal(app.layers.has(app.markers[1]), false);
+    assert.equal(app.layers.has(app.markers[2]), false);
+    assert.equal(app.layers.has(app.lines[0]), false);
+    assert.equal(app.layers.has(app.lines[1]), false);
+});
+
+test("cancelling deletion keeps the selected navigation graph", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    app.select("drTool");
+    app.elements.drBearing.value = "90";
+    app.elements.drDistance.value = "60";
+    app.submit("drForm");
+    app.setConfirmResult(false);
+    app.deleteKey();
+
     assert.equal(app.layers.has(app.markers[0]), true);
     assert.equal(app.layers.has(app.markers[1]), true);
-    assert.equal(app.text(), "Object deleted");
-});
-
-test("Delete on a marker removes it and its LOS but keeps the other endpoint", () => {
-    const app = createApp();
-    app.select("losTool");
-    app.click(0, 0);
-    app.click(0, 1);
-
-    app.markers[0].fire("click");
-    assert.match(app.markers[0].icon.className, /measurement-point-selected/);
-    app.deleteKey();
-
-    assert.equal(app.layers.has(app.markers[0]), false);
-    assert.equal(app.layers.has(app.lines[0]), false);
-    assert.equal(app.layers.has(app.markers[1]), true);
-    assert.equal(app.text(), "LOS active<br>Set the next point");
-});
-
-test("deleting a LOS endpoint keeps the other as the first point of a new LOS", () => {
-    const app = createApp();
-    app.select("losTool");
-    app.click(0, 0);
-    app.click(0, 1);
-
-    app.markers[0].fire("click");
-    app.deleteKey();
-
-    assert.equal(app.layers.has(app.markers[0]), false);
-    assert.equal(app.layers.has(app.lines[0]), false);
-    assert.equal(app.layers.has(app.markers[1]), true);
-    assert.equal(app.text(), "LOS active<br>Set the next point");
-
-    app.click(0, 2);
-
-    assert.equal(app.lines.length, 2);
-    assert.equal(app.lines[1].latlngs[0].lng, 1);
-    assert.equal(app.lines[1].latlngs[1].lng, 2);
-    assert.equal(app.layers.has(app.lines[1]), true);
-    assert.equal(app.text(), "<b>LOS</b><br>Distance: 60.04 nm<br>Bearing: 90.0°");
-});
-
-test("Delete removes a selected pending marker without completing a false pair", () => {
-    const app = createApp();
-    app.select("losTool");
-    app.click(0, 0);
-    app.markers[0].fire("click");
-    app.deleteKey();
-    app.click(0, 1);
-
-    assert.equal(app.lines.length, 0);
-    assert.equal(app.layers.has(app.markers[0]), false);
-    assert.equal(app.markers.length, 2);
+    assert.equal(app.layers.has(app.lines[0]), true);
 });
 
 test("Delete ignores editable controls and other keys", () => {
     const app = createApp();
-    app.select("losTool");
+    app.select("fixTool");
     app.click(0, 0);
-    app.markers[0].fire("click");
     app.deleteKey("Backspace");
     app.deleteKey("Delete", { tagName: "INPUT" });
 
     assert.equal(app.layers.has(app.markers[0]), true);
+    assert.equal(app.confirmations.length, 0);
 });

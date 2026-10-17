@@ -188,11 +188,28 @@ L.control.layers(
 
 let mode = null;
 let points = [];
+let navigationLines = [];
 let objects = [];
-let measurements = [];
 let selectedObject = null;
+let nextFixNumber = 1;
+let nextDrNumber = 1;
 
-const info = document.getElementById("info");
+const infoMessage = document.getElementById("infoMessage");
+const pointInfo = document.getElementById("pointInfo");
+const pointType = document.getElementById("pointType");
+const pointLabel = document.getElementById("pointLabel");
+const pointLat = document.getElementById("pointLat");
+const pointLng = document.getElementById("pointLng");
+const lineInfo = document.getElementById("lineInfo");
+const lineBearing = document.getElementById("lineBearing");
+const lineDistance = document.getElementById("lineDistance");
+const drButton = document.getElementById("drTool");
+const drPopup = document.getElementById("drPopup");
+const drForm = document.getElementById("drForm");
+const drStartLabel = document.getElementById("drStartLabel");
+const drBearing = document.getElementById("drBearing");
+const drDistance = document.getElementById("drDistance");
+const drError = document.getElementById("drError");
 const compassRose = document.querySelector(".compass-rose");
 const magneticCompassRose = document.getElementById("magCompassRose");
 const magneticVariationText = document.getElementById("magCompassTextTop");
@@ -342,84 +359,295 @@ compassRose.addEventListener("pointercancel", finishCompassDrag);
 
 map.on("moveend", updateMagneticVariation);
 const magneticVariationUpdate = updateMagneticVariation();
-const pointIcon = selected => L.divIcon({
-    className: selected
-        ? "measurement-point measurement-point-selected"
-        : "measurement-point",
-    iconSize: [24, 24],
-    iconAnchor: [12, 12]
-});
+function pointIcon(point, selected) {
+    return L.divIcon({
+        className:
+            "navigation-point navigation-point-" +
+            point.type.toLowerCase() +
+            (selected ? " navigation-point-selected" : ""),
+        iconSize: [22, 22],
+        iconAnchor: [11, 11]
+    });
+}
+
+function setInfoMessage(message) {
+    infoMessage.textContent = message;
+    pointInfo.hidden = true;
+    lineInfo.hidden = true;
+}
+
+function showPointInfo(point) {
+    infoMessage.textContent = "";
+    pointInfo.hidden = false;
+    lineInfo.hidden = true;
+    pointType.textContent = point.type + " point";
+    pointLabel.value = point.label;
+    pointLat.value = point.latlng.lat;
+    pointLng.value = point.latlng.lng;
+    const isFix = point.type === "FIX";
+    pointLat.disabled = !isFix;
+    pointLng.disabled = !isFix;
+}
+
+function showLineInfo(line) {
+    infoMessage.textContent = "";
+    pointInfo.hidden = true;
+    lineInfo.hidden = false;
+    lineBearing.value = line.bearing;
+    lineDistance.value = line.distanceNM;
+}
+
+function updateSelectionStyle() {
+    points.forEach(point =>
+        point.marker.setIcon(pointIcon(point, point === selectedObject))
+    );
+    navigationLines.forEach(line =>
+        line.layer.setStyle(
+            line === selectedObject
+                ? { color: "orange", weight: 5 }
+                : { color: "red", weight: 3 }
+        )
+    );
+    drButton.disabled = !selectedObject || !points.includes(selectedObject);
+}
 
 function selectObject(object) {
-    if (selectedObject === object) {
-        return;
-    }
-
-    if (selectedObject) {
-        if (selectedObject instanceof L.Marker) {
-            selectedObject.setIcon(pointIcon(false));
-        } else {
-            selectedObject.setStyle({ color: "red", weight: 3 });
-        }
-    }
-
     selectedObject = object;
-
-    if (object instanceof L.Marker) {
-        object.setIcon(pointIcon(true));
-    } else {
-        object.setStyle({ color: "orange", weight: 5 });
+    updateSelectionStyle();
+    if (points.includes(object)) {
+        showPointInfo(object);
+    } else if (navigationLines.includes(object)) {
+        showLineInfo(object);
     }
 }
 
-function removeObject(object) {
-    if (!objects.includes(object)) {
+function destinationPoint(start, bearingDegrees, distanceNM) {
+    const earthRadiusMeters = 6371000;
+    const angularDistance = distanceNM * 1852 / earthRadiusMeters;
+    const bearingRadians = bearingDegrees * Math.PI / 180;
+    const latitude1 = start.lat * Math.PI / 180;
+    const longitude1 = start.lng * Math.PI / 180;
+    const latitude2 = Math.asin(
+        Math.sin(latitude1) * Math.cos(angularDistance) +
+        Math.cos(latitude1) * Math.sin(angularDistance) * Math.cos(bearingRadians)
+    );
+    const longitude2 = longitude1 + Math.atan2(
+        Math.sin(bearingRadians) * Math.sin(angularDistance) * Math.cos(latitude1),
+        Math.cos(angularDistance) - Math.sin(latitude1) * Math.sin(latitude2)
+    );
+    const longitudeDegrees = (longitude2 * 180 / Math.PI + 540) % 360 - 180;
+
+    return {
+        lat: latitude2 * 180 / Math.PI,
+        lng: longitudeDegrees
+    };
+}
+
+function updateLineAndDescendants(line) {
+    const start = line.startPoint.latlng;
+    const end = destinationPoint(start, line.bearing, line.distanceNM);
+    line.endPoint.latlng = end;
+    line.endPoint.marker.setLatLng(end);
+    line.layer.setLatLngs([start, end]);
+    navigationLines
+        .filter(candidate => candidate.startPoint === line.endPoint)
+        .forEach(updateLineAndDescendants);
+}
+
+function createPoint(type, latlng, label) {
+    const point = { type, label, latlng, marker: null, incomingLine: null };
+    const isFix = type === "FIX";
+    point.marker = L.marker(latlng, {
+        draggable: isFix,
+        bubblingMouseEvents: false,
+        title: isFix ? "Drag to move FIX" : "Derived DR point",
+        alt: label,
+        icon: pointIcon(point, false)
+    }).addTo(map);
+    point.marker.on("click", () => selectObject(point));
+    if (isFix) {
+        point.marker.on("drag", () => {
+            point.latlng = point.marker.getLatLng();
+            navigationLines
+                .filter(line => line.startPoint === point)
+                .forEach(updateLineAndDescendants);
+            if (selectedObject === point) {
+                showPointInfo(point);
+            }
+        });
+    }
+    points.push(point);
+    objects.push(point.marker);
+    return point;
+}
+
+function createDrLine(startPoint, bearingDegrees, distanceNM) {
+    const endPoint = createPoint(
+        "DR",
+        destinationPoint(startPoint.latlng, bearingDegrees, distanceNM),
+        "DR " + nextDrNumber++
+    );
+    const line = {
+        startPoint,
+        endPoint,
+        bearing: bearingDegrees,
+        distanceNM,
+        layer: L.polyline(
+            [startPoint.latlng, endPoint.latlng],
+            { color: "red", weight: 3, bubblingMouseEvents: false }
+        ).addTo(map)
+    };
+    endPoint.incomingLine = line;
+    line.layer.on("click", () => selectObject(line));
+    navigationLines.push(line);
+    objects.push(line.layer);
+    selectObject(endPoint);
+}
+
+function activateButton(id) {
+    document
+        .querySelectorAll(".toolbar button")
+        .forEach(button => button.classList.remove("active"));
+    if (id) {
+        document.getElementById(id).classList.add("active");
+    }
+}
+
+function openDrPopup() {
+    if (!points.includes(selectedObject)) {
+        return;
+    }
+    mode = null;
+    activateButton("drTool");
+    drStartLabel.textContent = selectedObject.label;
+    drBearing.value = "";
+    drDistance.value = "";
+    drError.textContent = "";
+    drPopup.hidden = false;
+    drBearing.focus();
+}
+
+function closeDrPopup() {
+    drPopup.hidden = true;
+    drError.textContent = "";
+    activateButton(null);
+}
+
+function applyPointEdits(event) {
+    event.preventDefault();
+    if (!points.includes(selectedObject)) {
         return;
     }
 
-    const affectedMeasurements = measurements.filter(measurement =>
-        measurement.line === object || measurement.endpoints.includes(object)
-    );
+    const label = pointLabel.value.trim();
+    const latitude = Number(pointLat.value);
+    const longitude = Number(pointLng.value);
+    if (
+        !label ||
+        (selectedObject.type === "FIX" &&
+            (pointLat.value.trim() === "" || pointLng.value.trim() === "" ||
+                !Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
+                !Number.isFinite(longitude) || longitude < -180 || longitude > 180))
+    ) {
+        infoMessage.textContent = "Enter a label and valid coordinates.";
+        return;
+    }
 
-    if (object instanceof L.Marker) {
-        const remainingEndpoint = affectedMeasurements
-            .flatMap(measurement => measurement.endpoints)
-            .find(endpoint => endpoint !== object);
+    selectedObject.label = label;
+    if (selectedObject.type === "FIX") {
+        selectedObject.latlng = { lat: latitude, lng: longitude };
+        selectedObject.marker.setLatLng(selectedObject.latlng);
+        navigationLines
+            .filter(line => line.startPoint === selectedObject)
+            .forEach(updateLineAndDescendants);
+    }
+    showPointInfo(selectedObject);
+}
 
-        affectedMeasurements.forEach(measurement => {
-            map.removeLayer(measurement.line);
-            objects = objects.filter(item => item !== measurement.line);
-            if (selectedObject === measurement.line) {
-                selectedObject = null;
-            }
+function applyLineEdits(event) {
+    event.preventDefault();
+    if (!navigationLines.includes(selectedObject)) {
+        return;
+    }
+
+    const bearingDegrees = Number(lineBearing.value);
+    const distance = Number(lineDistance.value);
+    if (
+        lineBearing.value.trim() === "" ||
+        lineDistance.value.trim() === "" ||
+        !Number.isFinite(bearingDegrees) ||
+        bearingDegrees < 0 ||
+        bearingDegrees > 360 ||
+        !Number.isFinite(distance) ||
+        distance <= 0
+    ) {
+        infoMessage.textContent = "Enter a bearing from 0° to 360° and a positive distance.";
+        return;
+    }
+
+    selectedObject.bearing = bearingDegrees % 360;
+    selectedObject.distanceNM = distance;
+    updateLineAndDescendants(selectedObject);
+    showLineInfo(selectedObject);
+}
+
+function collectDescendantLines(point, result) {
+    navigationLines
+        .filter(line => line.startPoint === point && !result.has(line))
+        .forEach(line => {
+            result.add(line);
+            collectDescendantLines(line.endPoint, result);
         });
-        measurements = measurements.filter(measurement =>
-            !affectedMeasurements.includes(measurement)
-        );
-        points = points.filter(point => point !== object);
+}
 
-        if (remainingEndpoint) {
-            points = [remainingEndpoint];
-            mode = "los";
-            activateButton("losTool");
-            info.innerHTML = "LOS active<br>Set the next point";
+function deleteSelectedObject() {
+    if (!selectedObject) {
+        return;
+    }
+    const selectedLine = navigationLines.includes(selectedObject)
+        ? selectedObject
+        : null;
+    const selectedPoint = points.includes(selectedObject)
+        ? selectedObject
+        : null;
+    const affectedLines = new Set();
+    const affectedPoints = new Set();
+    if (selectedLine) {
+        affectedLines.add(selectedLine);
+        affectedPoints.add(selectedLine.endPoint);
+        collectDescendantLines(selectedLine.endPoint, affectedLines);
+    } else if (selectedPoint) {
+        affectedPoints.add(selectedPoint);
+        if (selectedPoint.incomingLine) {
+            affectedLines.add(selectedPoint.incomingLine);
         }
+        collectDescendantLines(selectedPoint, affectedLines);
     } else {
-        measurements = measurements.filter(measurement =>
-            measurement.line !== object
-        );
+        return;
+    }
+    affectedLines.forEach(line => affectedPoints.add(line.endPoint));
+
+    const cascades = affectedPoints.size > 1 || affectedLines.size > 1;
+    const message = cascades
+        ? "Delete this object and " + (affectedPoints.size - (selectedPoint ? 1 : 0)) +
+            " dependent DR point(s) and their lines?"
+        : "Delete the selected " + (selectedLine ? "DR leg and its DR point" : "point") + "?";
+    if (!window.confirm(message)) {
+        return;
     }
 
-    if (selectedObject === object) {
-        selectedObject = null;
-    }
-
-    map.removeLayer(object);
-    objects = objects.filter(item => item !== object);
-
-    if (!points.length) {
-        info.innerHTML = "Object deleted";
-    }
+    affectedLines.forEach(line => map.removeLayer(line.layer));
+    affectedPoints.forEach(point => map.removeLayer(point.marker));
+    const removedLayers = new Set([
+        ...Array.from(affectedLines, line => line.layer),
+        ...Array.from(affectedPoints, point => point.marker)
+    ]);
+    objects = objects.filter(object => !removedLayers.has(object));
+    navigationLines = navigationLines.filter(line => !affectedLines.has(line));
+    points = points.filter(point => !affectedPoints.has(point));
+    selectedObject = null;
+    updateSelectionStyle();
+    setInfoMessage("Object and dependent DRs deleted");
 }
 
 document.addEventListener("keydown", event => {
@@ -433,172 +661,70 @@ document.addEventListener("keydown", event => {
 
     if (selectedObject) {
         event.preventDefault();
-        removeObject(selectedObject);
+        deleteSelectedObject();
     }
 });
 
-function activateButton(id) {
-    document
-        .querySelectorAll(".toolbar button")
-        .forEach(btn => btn.classList.remove("active"));
-
-    document
-        .getElementById(id)
-        .classList.add("active");
-}
-
-document.getElementById("losTool").onclick = () => {
-    if (mode === "los") {
+document.getElementById("fixTool").onclick = () => {
+    if (mode === "fix") {
         mode = null;
-        document
-            .getElementById("losTool")
-            .classList.remove("active");
-        info.innerHTML = points.length
-            ? "LOS tool off<br>Set the next point to continue"
-            : "LOS tool off";
+        activateButton(null);
+        setInfoMessage("FIX tool off");
         return;
     }
-
-    mode = "los";
-    activateButton("losTool");
-    info.innerHTML = points.length
-        ? "LOS active<br>Set the next point"
-        : "LOS active<br>Set point 1";
+    mode = "fix";
+    activateButton("fixTool");
+    setInfoMessage("Click the map to place a FIX");
 };
+
+drButton.onclick = openDrPopup;
+document.getElementById("drCancel").onclick = closeDrPopup;
+drPopup.addEventListener("click", event => event.stopPropagation());
+
+drForm.addEventListener("submit", event => {
+    event.preventDefault();
+    const bearingDegrees = Number(drBearing.value);
+    const distance = Number(drDistance.value);
+    if (
+        drBearing.value.trim() === "" ||
+        drDistance.value.trim() === "" ||
+        !Number.isFinite(bearingDegrees) ||
+        bearingDegrees < 0 ||
+        bearingDegrees > 360 ||
+        !Number.isFinite(distance) ||
+        distance <= 0 ||
+        !points.includes(selectedObject)
+    ) {
+        drError.textContent = "Enter a bearing from 0° to 360° and a positive distance.";
+        return;
+    }
+    const startPoint = selectedObject;
+    closeDrPopup();
+    createDrLine(startPoint, bearingDegrees % 360, distance);
+});
+
+pointInfo.addEventListener("submit", applyPointEdits);
+lineInfo.addEventListener("submit", applyLineEdits);
 
 document.getElementById("clearTool").onclick = () => {
-    objects.forEach(obj => map.removeLayer(obj));
-
+    objects.forEach(object => map.removeLayer(object));
     objects = [];
     points = [];
-    measurements = [];
+    navigationLines = [];
     selectedObject = null;
     mode = null;
-
-    document
-        .querySelectorAll(".toolbar button")
-        .forEach(btn => btn.classList.remove("active"));
-
-    info.innerHTML = "Cleared";
+    drPopup.hidden = true;
+    nextFixNumber = 1;
+    nextDrNumber = 1;
+    activateButton(null);
+    updateSelectionStyle();
+    setInfoMessage("Cleared");
 };
 
-function distanceNM(a, b) {
-
-    const R = 6371000;
-
-    const lat1 = a.lat * Math.PI / 180;
-    const lat2 = b.lat * Math.PI / 180;
-
-    const dLat = (b.lat - a.lat) * Math.PI / 180;
-    const dLon = (b.lng - a.lng) * Math.PI / 180;
-
-    const h =
-        Math.sin(dLat / 2) ** 2 +
-        Math.cos(lat1) *
-        Math.cos(lat2) *
-        Math.sin(dLon / 2) ** 2;
-
-    const c =
-        2 *
-        Math.atan2(
-            Math.sqrt(h),
-            Math.sqrt(1 - h)
-        );
-
-    return (R * c) / 1852;
-}
-
-function bearing(start, end) {
-
-    const lat1 = start.lat * Math.PI / 180;
-    const lat2 = end.lat * Math.PI / 180;
-
-    const dLon =
-        (end.lng - start.lng) *
-        Math.PI / 180;
-
-    const y =
-        Math.sin(dLon) *
-        Math.cos(lat2);
-
-    const x =
-        Math.cos(lat1) *
-        Math.sin(lat2) -
-        Math.sin(lat1) *
-        Math.cos(lat2) *
-        Math.cos(dLon);
-
-    return (
-        (
-            Math.atan2(y, x) *
-            180 / Math.PI
-        ) + 360
-    ) % 360;
-}
-
-map.on("click", (e) => {
-
-    if (!mode) {
+map.on("click", event => {
+    if (mode !== "fix") {
         return;
     }
-
-    const marker = L.marker(
-        e.latlng,
-        {
-            draggable: true,
-            bubblingMouseEvents: false,
-            title: "Drag to move point",
-            alt: "Draggable measurement point",
-            icon: L.divIcon({
-                className: "measurement-point",
-                iconSize: [24, 24],
-                iconAnchor: [12, 12]
-            })
-        }
-    ).addTo(map);
-
-    marker.on("click", () => selectObject(marker));
-    objects.push(marker);
-    points.push(marker);
-
-    if (points.length < 2) {
-        return;
-    }
-
-    const endpoints = points;
-
-    const line = L.polyline(
-        endpoints.map(point => point.getLatLng()),
-        {
-            color: "red",
-            weight: 3,
-            bubblingMouseEvents: false
-        }
-    ).addTo(map);
-
-    line.on("click", () => selectObject(line));
-    objects.push(line);
-    const measurement = { endpoints, line };
-    measurements.push(measurement);
-
-    function updateMeasurement() {
-        const [p1, p2] = endpoints.map(point => point.getLatLng());
-        line.setLatLngs([p1, p2]);
-
-        const dist = distanceNM(p1, p2);
-        const kurs = bearing(p1, p2);
-
-        info.innerHTML =
-            "<b>LOS</b><br>" +
-            "Distance: " +
-            dist.toFixed(2) +
-            " nm<br>" +
-            "Bearing: " +
-            kurs.toFixed(1) +
-            "°";
-    }
-
-    endpoints.forEach(point => point.on("drag", updateMeasurement));
-    updateMeasurement();
-    points = [];
+    const point = createPoint("FIX", event.latlng, "FIX " + nextFixNumber++);
+    selectObject(point);
 });
