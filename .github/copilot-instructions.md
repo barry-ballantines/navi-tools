@@ -31,6 +31,10 @@
 - Keep navigation marker roots absolutely positioned as required by Leaflet; use
   pseudo-elements for symbol artwork without overriding the marker's positioning,
   so the icon anchor, center dot, and line endpoint remain coincident.
+- Show each point's label above its symbol and its live position below it in a
+  small font, formatted as `N dd° mm.m' E ddd° mm.m'` with matching S/W
+  hemispheres. Refresh map labels when points or their derived positions change,
+  and escape user-provided labels before inserting them into marker HTML.
 - Store each line's start and end point, true bearing, and distance. Compute its
   DR endpoint with a great-circle destination calculation using a 6,371,000 m
   Earth radius and 1,852 m per nautical mile. Editing a FIX or a line recomputes

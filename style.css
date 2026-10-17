@@ -90,6 +90,31 @@ body {
     touch-action: none;
 }
 
+.navigation-point-label,
+.navigation-point-position {
+    position: absolute;
+    left: 50%;
+    z-index: 2;
+    padding: 1px 3px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.3);
+    color: #123846;
+    font-size: 9px;
+    font-weight: normal;
+    line-height: 11px;
+    white-space: nowrap;
+    pointer-events: none;
+    transform: translateX(-50%);
+}
+
+.navigation-point-label {
+    bottom: calc(100% + 2px);
+}
+
+.navigation-point-position {
+    top: calc(100% + 2px);
+}
+
 .navigation-point-fix {
     cursor: grab;
 }

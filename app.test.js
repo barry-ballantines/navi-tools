@@ -388,6 +388,11 @@ test("FIX tool places named, draggable FIX points only while active", () => {
     assert.equal(app.markers[0].options.draggable, true);
     assert.equal(app.markers[0].icon.className, "navigation-point navigation-point-fix");
     assert.equal(app.markers[1].options.alt, "FIX 2");
+    assert.equal(
+        app.markers[1].icon.html,
+        '<span class="navigation-point-label">FIX 2</span>' +
+            '<span class="navigation-point-position">N 01° 00.0\' E 002° 00.0\'</span>'
+    );
     assert.equal(app.lines.length, 0);
     assert.equal(app.text(), "");
     assert.equal(app.elements.pointLabel.value, "FIX 2");
@@ -518,6 +523,21 @@ test("FIX position edits parse formatted coordinates and reject invalid minutes"
     assert.match(app.text(), /format N 54°/);
 });
 
+test("map point labels escape custom text and refresh coordinates after edits", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    app.elements.pointLabel.value = "<Waypoint>";
+    app.elements.pointPosition.value = "N 10° 00.000' - E 020° 00.000'";
+    app.submit("pointInfo");
+
+    assert.match(app.markers[0].icon.html, /&lt;Waypoint&gt;/);
+    assert.match(
+        app.markers[0].icon.html,
+        /N 10° 00\.0' E 020° 00\.0'/
+    );
+});
+
 test("editing a DR leg recalculates its endpoint", () => {
     const app = createApp();
     app.select("fixTool");
@@ -533,6 +553,7 @@ test("editing a DR leg recalculates its endpoint", () => {
 
     assert.ok(Math.abs(app.markers[1].getLatLng().lat - 1) < 0.001);
     assert.ok(Math.abs(app.markers[1].getLatLng().lng) < 0.001);
+    assert.match(app.markers[1].icon.html, /N 01° 00\.0' E 000° 00\.0'/);
 });
 
 test("clear removes navigation objects but preserves map layers", () => {

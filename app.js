@@ -364,9 +364,25 @@ function pointIcon(point, selected) {
             "navigation-point navigation-point-" +
             point.type.toLowerCase() +
             (selected ? " navigation-point-selected" : ""),
+        html:
+            '<span class="navigation-point-label">' +
+            escapeHtml(point.label) +
+            '</span><span class="navigation-point-position">' +
+            formatMapPosition(point.latlng) +
+            "</span>",
         iconSize: [22, 22],
         iconAnchor: [11, 11]
     });
+}
+
+function escapeHtml(value) {
+    return value.replace(/[&<>"']/g, character => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "\"": "&quot;",
+        "'": "&#39;"
+    })[character]);
 }
 
 function setInfoMessage(message) {
@@ -375,9 +391,12 @@ function setInfoMessage(message) {
     lineInfo.hidden = true;
 }
 
-function formatPositionCoordinate(value, isLatitude) {
+function formatPositionCoordinate(value, isLatitude, precision = 3) {
     let degrees = Math.floor(Math.abs(value));
-    let minutes = Number(((Math.abs(value) - degrees) * 60).toFixed(3));
+    const minuteScale = 10 ** precision;
+    let minutes =
+        Math.round((Math.abs(value) - degrees) * 60 * minuteScale) /
+        minuteScale;
     if (minutes >= 60) {
         degrees += 1;
         minutes = 0;
@@ -386,7 +405,7 @@ function formatPositionCoordinate(value, isLatitude) {
         ? (value < 0 ? "S" : "N")
         : (value < 0 ? "W" : "E");
     const degreeDigits = isLatitude ? 2 : 3;
-    const [wholeMinutes, fractionalMinutes] = minutes.toFixed(3).split(".");
+    const [wholeMinutes, fractionalMinutes] = minutes.toFixed(precision).split(".");
 
     return (
         hemisphere +
@@ -405,6 +424,14 @@ function formatPosition(latlng) {
         formatPositionCoordinate(latlng.lat, true) +
         " - " +
         formatPositionCoordinate(latlng.lng, false)
+    );
+}
+
+function formatMapPosition(latlng) {
+    return (
+        formatPositionCoordinate(latlng.lat, true, 1) +
+        " " +
+        formatPositionCoordinate(latlng.lng, false, 1)
     );
 }
 
@@ -516,6 +543,9 @@ function updateLineAndDescendants(line) {
     const end = destinationPoint(start, line.bearing, line.distanceNM);
     line.endPoint.latlng = end;
     line.endPoint.marker.setLatLng(end);
+    line.endPoint.marker.setIcon(
+        pointIcon(line.endPoint, line.endPoint === selectedObject)
+    );
     line.layer.setLatLngs([start, end]);
     navigationLines
         .filter(candidate => candidate.startPoint === line.endPoint)
@@ -536,6 +566,7 @@ function createPoint(type, latlng, label) {
     if (isFix) {
         point.marker.on("drag", () => {
             point.latlng = point.marker.getLatLng();
+            point.marker.setIcon(pointIcon(point, point === selectedObject));
             navigationLines
                 .filter(line => line.startPoint === point)
                 .forEach(updateLineAndDescendants);
@@ -626,6 +657,7 @@ function applyPointEdits(event) {
             .filter(line => line.startPoint === selectedObject)
             .forEach(updateLineAndDescendants);
     }
+    selectedObject.marker.setIcon(pointIcon(selectedObject, true));
     showPointInfo(selectedObject);
 }
 
