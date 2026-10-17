@@ -198,8 +198,7 @@ const infoMessage = document.getElementById("infoMessage");
 const pointInfo = document.getElementById("pointInfo");
 const pointType = document.getElementById("pointType");
 const pointLabel = document.getElementById("pointLabel");
-const pointLat = document.getElementById("pointLat");
-const pointLng = document.getElementById("pointLng");
+const pointPosition = document.getElementById("pointPosition");
 const lineInfo = document.getElementById("lineInfo");
 const lineBearing = document.getElementById("lineBearing");
 const lineDistance = document.getElementById("lineDistance");
@@ -376,17 +375,86 @@ function setInfoMessage(message) {
     lineInfo.hidden = true;
 }
 
+function formatPositionCoordinate(value, isLatitude) {
+    let degrees = Math.floor(Math.abs(value));
+    let minutes = Number(((Math.abs(value) - degrees) * 60).toFixed(3));
+    if (minutes >= 60) {
+        degrees += 1;
+        minutes = 0;
+    }
+    const hemisphere = isLatitude
+        ? (value < 0 ? "S" : "N")
+        : (value < 0 ? "W" : "E");
+    const degreeDigits = isLatitude ? 2 : 3;
+    const [wholeMinutes, fractionalMinutes] = minutes.toFixed(3).split(".");
+
+    return (
+        hemisphere +
+        " " +
+        String(degrees).padStart(degreeDigits, "0") +
+        "° " +
+        wholeMinutes.padStart(2, "0") +
+        "." +
+        fractionalMinutes +
+        "'"
+    );
+}
+
+function formatPosition(latlng) {
+    return (
+        formatPositionCoordinate(latlng.lat, true) +
+        " - " +
+        formatPositionCoordinate(latlng.lng, false)
+    );
+}
+
+function parsePosition(value) {
+    const match = value.match(
+        /^\s*([NS])\s*(\d{1,2})°\s*(\d{1,2})\.(\d{3})'\s*-\s*([EW])\s*(\d{1,3})°\s*(\d{1,2})\.(\d{3})'\s*$/i
+    );
+    if (!match) {
+        return null;
+    }
+
+    const [, latitudeHemisphere, latitudeDegreesText, latitudeMinutesText,
+        latitudeFractionText, longitudeHemisphere, longitudeDegreesText,
+        longitudeMinutesText, longitudeFractionText] = match;
+    const latitudeDegrees = Number(latitudeDegreesText);
+    const latitudeMinutes =
+        Number(latitudeMinutesText) + Number("0." + latitudeFractionText);
+    const longitudeDegrees = Number(longitudeDegreesText);
+    const longitudeMinutes =
+        Number(longitudeMinutesText) + Number("0." + longitudeFractionText);
+    if (
+        latitudeMinutes >= 60 ||
+        longitudeMinutes >= 60 ||
+        latitudeDegrees > 90 ||
+        longitudeDegrees > 180 ||
+        (latitudeDegrees === 90 && latitudeMinutes !== 0) ||
+        (longitudeDegrees === 180 && longitudeMinutes !== 0)
+    ) {
+        return null;
+    }
+
+    const latitude =
+        latitudeDegrees + latitudeMinutes / 60;
+    const longitude =
+        longitudeDegrees + longitudeMinutes / 60;
+    return {
+        lat: latitudeHemisphere.toUpperCase() === "S" ? -latitude : latitude,
+        lng: longitudeHemisphere.toUpperCase() === "W" ? -longitude : longitude
+    };
+}
+
 function showPointInfo(point) {
     infoMessage.textContent = "";
     pointInfo.hidden = false;
     lineInfo.hidden = true;
     pointType.textContent = point.type + " point";
     pointLabel.value = point.label;
-    pointLat.value = point.latlng.lat;
-    pointLng.value = point.latlng.lng;
+    pointPosition.value = formatPosition(point.latlng);
     const isFix = point.type === "FIX";
-    pointLat.disabled = !isFix;
-    pointLng.disabled = !isFix;
+    pointPosition.disabled = !isFix;
 }
 
 function showLineInfo(line) {
@@ -540,22 +608,19 @@ function applyPointEdits(event) {
     }
 
     const label = pointLabel.value.trim();
-    const latitude = Number(pointLat.value);
-    const longitude = Number(pointLng.value);
+    const position = parsePosition(pointPosition.value);
     if (
         !label ||
-        (selectedObject.type === "FIX" &&
-            (pointLat.value.trim() === "" || pointLng.value.trim() === "" ||
-                !Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
-                !Number.isFinite(longitude) || longitude < -180 || longitude > 180))
+        (selectedObject.type === "FIX" && !position)
     ) {
-        infoMessage.textContent = "Enter a label and valid coordinates.";
+        infoMessage.textContent =
+            "Enter a label and position in the format N 54° 10.123' - E 010° 12.456'.";
         return;
     }
 
     selectedObject.label = label;
     if (selectedObject.type === "FIX") {
-        selectedObject.latlng = { lat: latitude, lng: longitude };
+        selectedObject.latlng = position;
         selectedObject.marker.setLatLng(selectedObject.latlng);
         navigationLines
             .filter(line => line.startPoint === selectedObject)

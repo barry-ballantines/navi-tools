@@ -17,8 +17,7 @@ function createApp() {
         tagName: id.toLowerCase().includes("bearing") ||
             id.toLowerCase().includes("distance") ||
             id.toLowerCase().includes("label") ||
-            id.toLowerCase().includes("lat") ||
-            id.toLowerCase().includes("lng")
+            id.toLowerCase().includes("position")
             ? "INPUT"
             : "DIV",
         classList: { add() {}, remove() {} },
@@ -30,7 +29,7 @@ function createApp() {
     const elements = Object.fromEntries(
         [
             "info", "infoMessage", "fixTool", "drTool", "clearTool",
-            "pointInfo", "pointType", "pointLabel", "pointLat", "pointLng",
+            "pointInfo", "pointType", "pointLabel", "pointPosition",
             "lineInfo", "lineBearing", "lineDistance", "drPopup", "drForm",
             "drStartLabel", "drBearing", "drDistance", "drError", "drCancel",
             "magCompassRose", "magCompassTextTop", "magCompassTextBottom"
@@ -483,14 +482,40 @@ test("a FIX can branch into multiple DR legs and coordinate edits update both", 
     assert.equal(app.lines.length, 2);
 
     app.markers[0].fire("click");
-    app.elements.pointLat.value = "10";
-    app.elements.pointLng.value = "20";
+    app.elements.pointPosition.value = "N 10° 00.000' - E 020° 00.000'";
     app.submit("pointInfo");
 
     assert.ok(Math.abs(app.lines[0].latlngs[0].lat - 10) < 0.001);
     assert.ok(Math.abs(app.lines[1].latlngs[0].lng - 20) < 0.001);
     assert.ok(Math.abs(app.markers[1].getLatLng().lat - 10) < 0.003);
     assert.ok(Math.abs(app.markers[2].getLatLng().lat - 11) < 0.003);
+});
+
+test("point info formats coordinates as padded degrees and decimal minutes", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(-12.5, -3.25);
+
+    assert.equal(
+        app.elements.pointPosition.value,
+        "S 12° 30.000' - W 003° 15.000'"
+    );
+});
+
+test("FIX position edits parse formatted coordinates and reject invalid minutes", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    app.elements.pointPosition.value = "S 12° 30.500' - W 003° 15.250'";
+    app.submit("pointInfo");
+
+    assert.ok(Math.abs(app.markers[0].getLatLng().lat - (-12.5083333333)) < 0.000001);
+    assert.ok(Math.abs(app.markers[0].getLatLng().lng - (-3.2541666667)) < 0.000001);
+
+    app.elements.pointPosition.value = "N 90° 00.001' - E 010° 00.000'";
+    app.submit("pointInfo");
+    assert.equal(app.markers[0].getLatLng().lat, -12.508333333333333);
+    assert.match(app.text(), /format N 54°/);
 });
 
 test("editing a DR leg recalculates its endpoint", () => {

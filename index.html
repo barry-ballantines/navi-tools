@@ -63,8 +63,16 @@
     <form id="pointInfo" hidden>
         <strong id="pointType"></strong>
         <label>Label <input id="pointLabel" type="text" required></label>
-        <label>Latitude <input id="pointLat" type="number" step="any" required></label>
-        <label>Longitude <input id="pointLng" type="number" step="any" required></label>
+        <label>Position
+            <input
+                id="pointPosition"
+                type="text"
+                aria-label="Latitude and longitude"
+                placeholder="N 54° 10.123' - E 010° 12.456'"
+                pattern="[NS] [0-9]{2}° [0-9]{2}\.[0-9]{3}' - [EW] [0-9]{3}° [0-9]{2}\.[0-9]{3}'"
+                required
+            >
+        </label>
         <button type="submit">Apply</button>
     </form>
     <form id="lineInfo" hidden>
