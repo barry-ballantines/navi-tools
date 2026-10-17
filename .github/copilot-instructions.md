@@ -19,7 +19,7 @@
 
 ## Navigation tools
 - Keep navigation data separate from Leaflet layers so points can be shared as the
-  start of multiple directed lines. The toolbar has FIX and DR tools; do not
+  start of multiple directed lines. The toolbar has FIX, DR, and GCR tools; do not
   reintroduce the retired LOS tool.
 - FIX stays active for map placement and labels new fixes `FIX 1`, `FIX 2`, etc.
   FIX positions are authoritative and can be edited in the lower-left info panel
@@ -29,6 +29,12 @@
   create a directed line from the selected point to a new derived point named
   `DR 1`, `DR 2`, etc. The new DR can start another leg. Render DRs as half-circles
   with center dots; they are selectable but cannot be moved or directly edited.
+- Enable GCR only when a FIX is selected. GCR enters a map-pick mode; the next
+  map click creates a new, independently movable FIX at that location and draws
+  a sampled great-circle route from the selected start FIX to the new FIX. Render
+  GCR routes in dark blue. Recalculate the route when either endpoint FIX moves,
+  without moving the other endpoint. Persist route endpoint references and
+  restore the routes alongside their FIXes.
 - Keep navigation marker roots absolutely positioned as required by Leaflet; use
   pseudo-elements for symbol artwork without overriding the marker's positioning,
   so the icon anchor, center dot, and line endpoint remain coincident.
@@ -63,8 +69,9 @@
   read/write failures to the user rather than silently discarding navigation data.
 - Keep all visible UI text in English. Test FIX placement/editing/dragging, DR
   creation from FIX and DR, bearing/distance calculations, downstream propagation,
-  validation, deletion/cancellation behavior, persistence across reloads, and
-  storage failure reporting.
+  GCR creation and recalculation from either endpoint, validation,
+  deletion/cancellation behavior, persistence across reloads, and storage failure
+  reporting.
 
 ## Map overlay behavior
 - Grid labels use hemisphere and padded degrees, with rounded whole minutes
@@ -78,8 +85,8 @@
 - There is no package manifest, dependency installation step or build command.
 - Run the JavaScript regression tests with `node --test app.test.js` (Node 18+).
   They execute `app.js` using lightweight DOM/Leaflet doubles, not a real browser.
-- Browser-check FIX placement, dragging, DR popup entry, updated derived positions,
-  selection, and clear behavior; unit tests do not validate Leaflet's actual
-  pointer interactions or tile loading.
+- Browser-check FIX placement, dragging, DR popup entry, GCR map-pick and route
+  display, updated derived positions, selection, and clear behavior; unit tests do
+  not validate Leaflet's actual pointer interactions or tile loading.
 - Keep the existing plain-script structure, four-space indentation, double-quoted
   JavaScript strings and DOM IDs shared between `index.html` and `app.js`.

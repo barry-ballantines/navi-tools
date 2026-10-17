@@ -28,7 +28,7 @@ function createApp(options = {}) {
     });
     const elements = Object.fromEntries(
         [
-            "info", "infoMessage", "fixTool", "drTool", "clearTool",
+            "info", "infoMessage", "fixTool", "drTool", "gcrTool", "clearTool",
             "pointInfo", "pointType", "pointLabel", "pointPosition",
             "lineInfo", "lineBearing", "lineDistance", "drPopup", "drForm",
             "drStartLabel", "drBearing", "drDistance", "drError", "drCancel",
@@ -40,6 +40,7 @@ function createApp(options = {}) {
     elements.lineInfo.hidden = true;
     elements.drPopup.hidden = true;
     elements.drTool.disabled = true;
+    elements.gcrTool.disabled = true;
     const layers = new Set();
     const markers = [];
     const lines = [];
@@ -465,6 +466,75 @@ test("DR is enabled for a selected point and creates a named DR leg", () => {
     assert.ok(Math.abs(app.lines[0].latlngs[1].lng - 1) < 0.001);
     assert.equal(app.elements.pointLabel.value, "DR 1");
     assert.equal(app.elements.drTool.disabled, false);
+});
+
+test("GCR connects a selected FIX to a new FIX with a dark-blue great-circle route", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    const startFix = app.markers[0];
+
+    assert.equal(app.elements.gcrTool.disabled, false);
+    app.select("gcrTool");
+    assert.match(app.text(), /final FIX for a Great Circle Route/);
+    app.click(60, 60);
+
+    const endFix = app.markers[1];
+    const route = app.lines[0];
+    assert.equal(endFix.options.alt, "FIX 2");
+    assert.equal(endFix.options.draggable, true);
+    assert.equal(route.options.color, "#003366");
+    assert.ok(route.latlngs.length > 2);
+    assert.ok(route.latlngs[Math.floor(route.latlngs.length / 2)].lat > 30);
+    assert.ok(Math.abs(route.latlngs[0].lat - startFix.getLatLng().lat) < 1e-10);
+    assert.equal(route.latlngs[0].lng, startFix.getLatLng().lng);
+    assert.ok(Math.abs(route.latlngs.at(-1).lat - endFix.getLatLng().lat) < 1e-10);
+    assert.equal(route.latlngs.at(-1).lng, endFix.getLatLng().lng);
+    assert.equal(app.elements.gcrTool.disabled, false);
+});
+
+test("moving either GCR endpoint recalculates the route and preserves the other endpoint", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(10, 20);
+    app.select("gcrTool");
+    app.click(40, 70);
+
+    const [startFix, endFix] = app.markers;
+    const route = app.lines[0];
+    const originalEnd = endFix.getLatLng();
+    startFix.dragTo({ lat: 15, lng: 25 });
+    assert.ok(Math.abs(route.latlngs[0].lat - 15) < 1e-10);
+    assert.equal(route.latlngs[0].lng, 25);
+    assert.equal(endFix.getLatLng().lat, originalEnd.lat);
+    assert.equal(endFix.getLatLng().lng, originalEnd.lng);
+
+    const originalStart = startFix.getLatLng();
+    endFix.dragTo({ lat: 45, lng: 75 });
+    assert.equal(route.latlngs[0].lat, originalStart.lat);
+    assert.equal(route.latlngs[0].lng, originalStart.lng);
+    assert.ok(Math.abs(route.latlngs.at(-1).lat - 45) < 1e-10);
+    assert.equal(route.latlngs.at(-1).lng, 75);
+});
+
+test("GCR routes persist across reloads and are removed when their FIX is deleted", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(1, 2);
+    app.select("gcrTool");
+    app.click(3, 4);
+
+    const restored = createApp({ storageValues: app.storageValues });
+    assert.equal(restored.markers.length, 2);
+    assert.equal(restored.lines.length, 1);
+    assert.equal(restored.lines[0].options.color, "#003366");
+    assert.equal(restored.lines[0].latlngs.length > 2, true);
+
+    restored.markers[0].fire("click");
+    restored.deleteKey();
+    const afterDelete = createApp({ storageValues: restored.storageValues });
+    assert.equal(afterDelete.markers.length, 1);
+    assert.equal(afterDelete.lines.length, 0);
 });
 
 test("DR leg creation rejects invalid bearing or non-positive distance", () => {
@@ -979,6 +1049,13 @@ test("storage read, write, and invalid-data failures are shown to the user", () 
     writeFailure.select("fixTool");
     writeFailure.click(1, 2);
     assert.match(writeFailure.text(), /Navigation data save failed/);
+
+    const failedGcrSave = createApp({ failStorageWrite: true });
+    failedGcrSave.select("fixTool");
+    failedGcrSave.click(1, 2);
+    failedGcrSave.select("gcrTool");
+    failedGcrSave.click(3, 4);
+    assert.match(failedGcrSave.text(), /Navigation data save failed/);
 
     const storageValues = new Map([
         ["navi-tools.navigation.v1", "{not valid JSON"]

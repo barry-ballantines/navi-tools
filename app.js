@@ -189,8 +189,10 @@ L.control.layers(
 let mode = null;
 let points = [];
 let navigationLines = [];
+let greatCircleRoutes = [];
 let objects = [];
 let selectedObject = null;
+let gcrStartPoint = null;
 let nextFixNumber = 1;
 let nextDrNumber = 1;
 let nextPointId = 1;
@@ -207,6 +209,7 @@ const lineInfo = document.getElementById("lineInfo");
 const lineBearing = document.getElementById("lineBearing");
 const lineDistance = document.getElementById("lineDistance");
 const drButton = document.getElementById("drTool");
+const gcrButton = document.getElementById("gcrTool");
 const drPopup = document.getElementById("drPopup");
 const drForm = document.getElementById("drForm");
 const drStartLabel = document.getElementById("drStartLabel");
@@ -507,7 +510,17 @@ function updateSelectionStyle() {
                 : { color: "red", weight: 3 }
         )
     );
+    greatCircleRoutes.forEach(route =>
+        route.layer.setStyle({
+            color: "#003366",
+            weight: route === selectedObject ? 5 : 3
+        })
+    );
     drButton.disabled = !selectedObject || !points.includes(selectedObject);
+    gcrButton.disabled =
+        !selectedObject ||
+        !points.includes(selectedObject) ||
+        selectedObject.type !== "FIX";
 }
 
 function selectObject(object) {
@@ -517,6 +530,13 @@ function selectObject(object) {
         showPointInfo(object);
     } else if (navigationLines.includes(object)) {
         showLineInfo(object);
+    } else if (greatCircleRoutes.includes(object)) {
+        setInfoMessage(
+            "Great Circle Route: " +
+            object.startPoint.label +
+            " to " +
+            object.endPoint.label
+        );
     }
 }
 
@@ -540,6 +560,100 @@ function destinationPoint(start, bearingDegrees, distanceNM) {
         lat: latitude2 * 180 / Math.PI,
         lng: longitudeDegrees
     };
+}
+
+function greatCirclePath(start, end) {
+    const toVector = latlng => {
+        const latitude = latlng.lat * Math.PI / 180;
+        const longitude = latlng.lng * Math.PI / 180;
+        return [
+            Math.cos(latitude) * Math.cos(longitude),
+            Math.cos(latitude) * Math.sin(longitude),
+            Math.sin(latitude)
+        ];
+    };
+    const startVector = toVector(start);
+    const endVector = toVector(end);
+    const dot = Math.max(-1, Math.min(1,
+        startVector.reduce((sum, value, index) => sum + value * endVector[index], 0)
+    ));
+    const angle = Math.acos(dot);
+    const segmentCount = Math.max(
+        1,
+        Math.ceil(angle * 6371000 / (1852 * 50))
+    );
+    const sineAngle = Math.sin(angle);
+    const path = [];
+    let previousLongitude = start.lng;
+
+    for (let index = 0; index <= segmentCount; index += 1) {
+        const fraction = index / segmentCount;
+        let vector;
+        if (angle < 1e-8) {
+            vector = startVector.map((value, axis) =>
+                value * (1 - fraction) + endVector[axis] * fraction
+            );
+        } else if (Math.abs(sineAngle) < 1e-8) {
+            const axis = Math.abs(startVector[0]) < 0.9
+                ? [1, 0, 0]
+                : [0, 1, 0];
+            const perpendicular = [
+                startVector[1] * axis[2] - startVector[2] * axis[1],
+                startVector[2] * axis[0] - startVector[0] * axis[2],
+                startVector[0] * axis[1] - startVector[1] * axis[0]
+            ];
+            const magnitude = Math.hypot(...perpendicular);
+            const normalizedPerpendicular =
+                perpendicular.map(value => value / magnitude);
+            vector = startVector.map((value, axisIndex) =>
+                value * Math.cos(Math.PI * fraction) +
+                normalizedPerpendicular[axisIndex] * Math.sin(Math.PI * fraction)
+            );
+        } else {
+            const startWeight = Math.sin((1 - fraction) * angle) / sineAngle;
+            const endWeight = Math.sin(fraction * angle) / sineAngle;
+            vector = startVector.map((value, axis) =>
+                value * startWeight + endVector[axis] * endWeight
+            );
+        }
+
+        const latitude = index === 0
+            ? start.lat
+            : index === segmentCount
+                ? end.lat
+                : Math.atan2(
+                    vector[2],
+                    Math.hypot(vector[0], vector[1])
+                ) * 180 / Math.PI;
+        let longitude = index === 0
+            ? start.lng
+            : index === segmentCount
+                ? end.lng
+                : Math.atan2(vector[1], vector[0]) * 180 / Math.PI;
+        while (longitude - previousLongitude > 180) {
+            longitude -= 360;
+        }
+        while (longitude - previousLongitude < -180) {
+            longitude += 360;
+        }
+        path.push({ lat: latitude, lng: longitude });
+        previousLongitude = longitude;
+    }
+    return path;
+}
+
+function updateGreatCircleRoute(route) {
+    route.layer.setLatLngs(
+        greatCirclePath(route.startPoint.latlng, route.endPoint.latlng)
+    );
+}
+
+function updateGreatCircleRoutesForPoint(point) {
+    greatCircleRoutes
+        .filter(route =>
+            route.startPoint === point || route.endPoint === point
+        )
+        .forEach(updateGreatCircleRoute);
 }
 
 function updateLineAndDescendants(line, updateLabels = true) {
@@ -650,6 +764,7 @@ function createPoint(type, latlng, label, id) {
             navigationLines
                 .filter(line => line.startPoint === point)
                 .forEach(line => updateLineAndDescendants(line, false));
+            updateGreatCircleRoutesForPoint(point);
         });
         point.marker.on("dragend", () => {
             point.marker.setIcon(pointIcon(point, point === selectedObject));
@@ -708,6 +823,22 @@ function createDrLine(startPoint, bearingDegrees, distanceNM, options = {}) {
     return line;
 }
 
+function createGreatCircleRoute(startPoint, endPoint, id) {
+    const route = {
+        id: id || "line-" + nextLineId++,
+        startPoint,
+        endPoint,
+        layer: L.polyline(
+            greatCirclePath(startPoint.latlng, endPoint.latlng),
+            { color: "#003366", weight: 3, bubblingMouseEvents: false }
+        ).addTo(map)
+    };
+    route.layer.on("click", () => selectObject(route));
+    greatCircleRoutes.push(route);
+    objects.push(route.layer);
+    return route;
+}
+
 function showStorageError(action, error) {
     const detail = error && error.message ? ": " + error.message : "";
     console.error("Navigation data " + action + " failed", error);
@@ -734,6 +865,11 @@ function serializeNavigationState() {
             endPointId: line.endPoint.id,
             bearing: line.bearing,
             distanceNM: line.distanceNM
+        })),
+        greatCircleRoutes: greatCircleRoutes.map(route => ({
+            id: route.id,
+            startPointId: route.startPoint.id,
+            endPointId: route.endPoint.id
         }))
     };
 }
@@ -761,6 +897,8 @@ function validateStoredNavigationState(state) {
         state.version !== 1 ||
         !Array.isArray(state.points) ||
         !Array.isArray(state.lines) ||
+        (state.greatCircleRoutes !== undefined &&
+            !Array.isArray(state.greatCircleRoutes)) ||
         !Number.isInteger(state.nextFixNumber) ||
         state.nextFixNumber < 1 ||
         !Number.isInteger(state.nextDrNumber) ||
@@ -827,9 +965,6 @@ function validateStoredNavigationState(state) {
             (incomingCounts.get(line.endPointId) || 0) + 1
         );
     });
-    if (state.nextLineId <= highestLineId) {
-        invalid("line counter");
-    }
     pointsById.forEach(point => {
         const incomingCount = incomingCounts.get(point.id) || 0;
         if ((point.type === "FIX" && incomingCount !== 0) ||
@@ -855,6 +990,26 @@ function validateStoredNavigationState(state) {
     }
     if (pendingLines.length || reachablePoints.size !== pointsById.size) {
         invalid("cyclic or disconnected route");
+    }
+    (state.greatCircleRoutes || []).forEach(route => {
+        const routeIdMatch = route && /^line-(\d+)$/.exec(route.id);
+        const startPoint = route && pointsById.get(route.startPointId);
+        const endPoint = route && pointsById.get(route.endPointId);
+        if (
+            !routeIdMatch ||
+            lineIds.has(route.id) ||
+            !startPoint ||
+            !endPoint ||
+            startPoint.type !== "FIX" ||
+            endPoint.type !== "FIX"
+        ) {
+            invalid("great circle route record");
+        }
+        highestLineId = Math.max(highestLineId, Number(routeIdMatch[1]));
+        lineIds.add(route.id);
+    });
+    if (state.nextLineId <= highestLineId) {
+        invalid("line counter");
     }
     return pointsById;
 }
@@ -918,6 +1073,13 @@ function restoreNavigationState() {
             );
             restoredPoints.set(endPointData.id, line.endPoint);
         }
+        (state.greatCircleRoutes || []).forEach(route => {
+            createGreatCircleRoute(
+                restoredPoints.get(route.startPointId),
+                restoredPoints.get(route.endPointId),
+                route.id
+            );
+        });
         updateSelectionStyle();
     } catch (error) {
         showStorageError("restore", error);
@@ -979,6 +1141,7 @@ function applyPointEdits(event) {
         navigationLines
             .filter(line => line.startPoint === selectedObject)
             .forEach(updateLineAndDescendants);
+        updateGreatCircleRoutesForPoint(selectedObject);
     }
     selectedObject.marker.setIcon(pointIcon(selectedObject, true));
     showPointInfo(selectedObject);
@@ -1029,12 +1192,29 @@ function deleteSelectedObject() {
     const selectedLine = navigationLines.includes(selectedObject)
         ? selectedObject
         : null;
+    const selectedGreatCircleRoute = greatCircleRoutes.includes(selectedObject)
+        ? selectedObject
+        : null;
     const selectedPoint = points.includes(selectedObject)
         ? selectedObject
         : null;
     const affectedLines = new Set();
     const affectedPoints = new Set();
-    if (selectedLine) {
+    if (selectedGreatCircleRoute) {
+        if (!window.confirm("Delete the selected Great Circle Route?")) {
+            return;
+        }
+        map.removeLayer(selectedGreatCircleRoute.layer);
+        objects = objects.filter(object => object !== selectedGreatCircleRoute.layer);
+        greatCircleRoutes = greatCircleRoutes.filter(
+            route => route !== selectedGreatCircleRoute
+        );
+        selectedObject = null;
+        updateSelectionStyle();
+        setInfoMessage("Great Circle Route deleted");
+        persistNavigationState();
+        return;
+    } else if (selectedLine) {
         affectedLines.add(selectedLine);
         affectedPoints.add(selectedLine.endPoint);
         collectDescendantLines(selectedLine.endPoint, affectedLines);
@@ -1048,6 +1228,12 @@ function deleteSelectedObject() {
         return;
     }
     affectedLines.forEach(line => affectedPoints.add(line.endPoint));
+    const affectedGreatCircleRoutes = new Set(
+        greatCircleRoutes.filter(route =>
+            affectedPoints.has(route.startPoint) ||
+            affectedPoints.has(route.endPoint)
+        )
+    );
 
     const cascades = affectedPoints.size > 1 || affectedLines.size > 1;
     const message = cascades
@@ -1062,13 +1248,18 @@ function deleteSelectedObject() {
         map.removeLayer(line.layer);
         map.removeLayer(line.annotation);
     });
+    affectedGreatCircleRoutes.forEach(route => map.removeLayer(route.layer));
     affectedPoints.forEach(point => map.removeLayer(point.marker));
     const removedLayers = new Set([
         ...Array.from(affectedLines, line => [line.layer, line.annotation]).flat(),
+        ...Array.from(affectedGreatCircleRoutes, route => route.layer),
         ...Array.from(affectedPoints, point => point.marker)
     ]);
     objects = objects.filter(object => !removedLayers.has(object));
     navigationLines = navigationLines.filter(line => !affectedLines.has(line));
+    greatCircleRoutes = greatCircleRoutes.filter(
+        route => !affectedGreatCircleRoutes.has(route)
+    );
     points = points.filter(point => !affectedPoints.has(point));
     selectedObject = null;
     updateSelectionStyle();
@@ -1092,6 +1283,7 @@ document.addEventListener("keydown", event => {
 });
 
 document.getElementById("fixTool").onclick = () => {
+    gcrStartPoint = null;
     if (mode === "fix") {
         mode = null;
         activateButton(null);
@@ -1104,6 +1296,25 @@ document.getElementById("fixTool").onclick = () => {
 };
 
 drButton.onclick = openDrPopup;
+gcrButton.onclick = () => {
+    if (mode === "gcr") {
+        mode = null;
+        gcrStartPoint = null;
+        activateButton(null);
+        setInfoMessage("GCR tool off");
+        return;
+    }
+    if (!points.includes(selectedObject) || selectedObject.type !== "FIX") {
+        return;
+    }
+    mode = "gcr";
+    gcrStartPoint = selectedObject;
+    activateButton("gcrTool");
+    setInfoMessage(
+        "Click the map to place the final FIX for a Great Circle Route from " +
+        gcrStartPoint.label
+    );
+};
 document.getElementById("drCancel").onclick = closeDrPopup;
 drPopup.addEventListener("click", event => event.stopPropagation());
 
@@ -1137,8 +1348,10 @@ document.getElementById("clearTool").onclick = () => {
     objects = [];
     points = [];
     navigationLines = [];
+    greatCircleRoutes = [];
     selectedObject = null;
     mode = null;
+    gcrStartPoint = null;
     drPopup.hidden = true;
     nextFixNumber = 1;
     nextDrNumber = 1;
@@ -1155,12 +1368,24 @@ document.getElementById("clearTool").onclick = () => {
 };
 
 map.on("click", event => {
-    if (mode !== "fix") {
-        return;
+    if (mode === "gcr" && gcrStartPoint && points.includes(gcrStartPoint)) {
+        const startPoint = gcrStartPoint;
+        mode = null;
+        gcrStartPoint = null;
+        activateButton(null);
+        const endPoint = createPoint(
+            "FIX",
+            event.latlng,
+            "FIX " + nextFixNumber++
+        );
+        createGreatCircleRoute(startPoint, endPoint);
+        selectObject(endPoint);
+        persistNavigationState();
+    } else if (mode === "fix") {
+        const point = createPoint("FIX", event.latlng, "FIX " + nextFixNumber++);
+        selectObject(point);
+        persistNavigationState();
     }
-    const point = createPoint("FIX", event.latlng, "FIX " + nextFixNumber++);
-    selectObject(point);
-    persistNavigationState();
 });
 
 restoreNavigationState();
