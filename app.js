@@ -1,4 +1,47 @@
-const map = L.map("map").setView([54.0, 10.0], 6);
+const navigationStorageKey = "navi-tools.navigation.v1";
+const viewportStorageKey = "navi-tools.viewport.v1";
+const defaultMapCenter = [54.0, 10.0];
+const defaultMapZoom = 6;
+let initialMapView = {
+    center: defaultMapCenter,
+    zoom: defaultMapZoom
+};
+let invalidStoredViewport = false;
+let viewportReadError = null;
+
+try {
+    const storedViewport = window.localStorage.getItem(viewportStorageKey);
+    if (storedViewport !== null) {
+        const viewport = JSON.parse(storedViewport);
+        if (!isValidStoredViewport(viewport)) {
+            invalidStoredViewport = true;
+        } else {
+            initialMapView = {
+                center: [viewport.lat, viewport.lng],
+                zoom: viewport.zoom
+            };
+        }
+    }
+} catch (error) {
+    viewportReadError = error;
+}
+
+const map = L.map("map").setView(initialMapView.center, initialMapView.zoom);
+
+function isValidStoredViewport(viewport) {
+    return Boolean(
+        viewport &&
+        Number.isFinite(viewport.lat) &&
+        viewport.lat >= -90 &&
+        viewport.lat <= 90 &&
+        Number.isFinite(viewport.lng) &&
+        viewport.lng >= -180 &&
+        viewport.lng <= 180 &&
+        Number.isFinite(viewport.zoom) &&
+        viewport.zoom >= 0 &&
+        viewport.zoom <= 19
+    );
+}
 
 const osm = L.tileLayer(
     "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
@@ -198,7 +241,6 @@ let nextDrNumber = 1;
 let nextPointId = 1;
 let nextLineId = 1;
 let isRestoringNavigationState = false;
-const navigationStorageKey = "navi-tools.navigation.v1";
 
 const infoMessage = document.getElementById("infoMessage");
 const pointInfo = document.getElementById("pointInfo");
@@ -888,6 +930,26 @@ function persistNavigationState() {
     }
 }
 
+function persistMapViewport() {
+    const center = map.getCenter();
+    const viewport = {
+        lat: center.lat,
+        lng: center.lng,
+        zoom: map.getZoom()
+    };
+    try {
+        window.localStorage.setItem(
+            viewportStorageKey,
+            JSON.stringify(viewport)
+        );
+    } catch (error) {
+        showStorageError("save map viewport", error);
+    }
+}
+
+map.on("moveend", persistMapViewport);
+map.on("zoomend", persistMapViewport);
+
 function validateStoredNavigationState(state) {
     const invalid = message => {
         throw new Error("Saved navigation data is invalid: " + message);
@@ -1389,3 +1451,8 @@ map.on("click", event => {
 });
 
 restoreNavigationState();
+if (viewportReadError) {
+    showStorageError("load map viewport", viewportReadError);
+} else if (invalidStoredViewport) {
+    showStorageError("load map viewport", new Error("Saved map viewport is invalid"));
+}

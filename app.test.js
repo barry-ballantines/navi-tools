@@ -115,14 +115,23 @@ function createApp(options = {}) {
         }
     };
     let mapDraggingDisabled = false;
+    let mapCenter = { lat: 54, lng: 10 };
+    let mapZoom = 6;
     const map = {
-        setView() { return this; },
+        setView(center, zoom) {
+            mapCenter = Array.isArray(center)
+                ? { lat: center[0], lng: center[1] }
+                : center;
+            mapZoom = zoom;
+            return this;
+        },
         on(event, handler) {
             handlers[event] = handlers[event] || [];
             handlers[event].push(handler);
         },
         removeLayer(layer) { layers.delete(layer); },
-        getCenter() { return { lat: 54, lng: 10 }; },
+        getCenter() { return mapCenter; },
+        getZoom() { return mapZoom; },
         getPixelBounds() { return gridState.pixelBounds; },
         getContainer() {
             return {
@@ -354,6 +363,12 @@ function createApp(options = {}) {
         setGridPixelBounds: pixelBounds => {
             gridState.pixelBounds = pixelBounds;
         },
+        setViewport: (lat, lng, zoom) => {
+            map.setView([lat, lng], zoom);
+            handlers.moveend.forEach(handler => handler());
+            handlers.zoomend.forEach(handler => handler());
+        },
+        viewport: () => ({ center: mapCenter, zoom: mapZoom }),
         formatGridCoordinate: (value, isLatitude) =>
             vm.runInNewContext(
                 `formatGridCoordinate(${value}, ${isLatitude})`,
@@ -1041,14 +1056,36 @@ test("clear removes saved navigation data as well as map objects", () => {
     assert.equal(reloaded.lines.length, 0);
 });
 
+test("map viewport is saved after movement and restored on reload", () => {
+    const app = createApp();
+    assert.deepEqual(app.viewport(), {
+        center: { lat: 54, lng: 10 },
+        zoom: 6
+    });
+
+    app.setViewport(37.5, -122.25, 9);
+    assert.deepEqual(
+        JSON.parse(app.storageValues.get("navi-tools.viewport.v1")),
+        { lat: 37.5, lng: -122.25, zoom: 9 }
+    );
+
+    const restored = createApp({ storageValues: app.storageValues });
+    assert.deepEqual(restored.viewport(), {
+        center: { lat: 37.5, lng: -122.25 },
+        zoom: 9
+    });
+});
+
 test("storage read, write, and invalid-data failures are shown to the user", () => {
     const readFailure = createApp({ failStorageRead: true });
-    assert.match(readFailure.text(), /Navigation data load failed/);
+    assert.match(readFailure.text(), /Navigation data load map viewport failed/);
 
     const writeFailure = createApp({ failStorageWrite: true });
     writeFailure.select("fixTool");
     writeFailure.click(1, 2);
     assert.match(writeFailure.text(), /Navigation data save failed/);
+    writeFailure.setViewport(40, -70, 8);
+    assert.match(writeFailure.text(), /Navigation data save map viewport failed/);
 
     const failedGcrSave = createApp({ failStorageWrite: true });
     failedGcrSave.select("fixTool");
@@ -1064,4 +1101,18 @@ test("storage read, write, and invalid-data failures are shown to the user", () 
     assert.equal(invalidState.markers.length, 0);
     assert.match(invalidState.text(), /Navigation data load failed/);
     assert.equal(storageValues.get("navi-tools.navigation.v1"), "{not valid JSON");
+
+    const invalidViewportValues = new Map([
+        ["navi-tools.viewport.v1", JSON.stringify({ lat: 100, lng: 0, zoom: 7 })]
+    ]);
+    const invalidViewport = createApp({ storageValues: invalidViewportValues });
+    assert.deepEqual(invalidViewport.viewport(), {
+        center: { lat: 54, lng: 10 },
+        zoom: 6
+    });
+    assert.match(invalidViewport.text(), /load map viewport failed/);
+    assert.equal(
+        invalidViewportValues.get("navi-tools.viewport.v1"),
+        JSON.stringify({ lat: 100, lng: 0, zoom: 7 })
+    );
 });

@@ -67,6 +67,9 @@
   startup restore. Clear removes the saved graph. Validate stored data before
   rebuilding it, preserve invalid or unwritable stored data, and display storage
   read/write failures to the user rather than silently discarding navigation data.
+- Store the map's last center latitude/longitude and zoom in browser local storage
+  after map movement or zoom; restore that viewport on startup, defaulting to the
+  initial map view if the saved viewport is invalid.
 - Keep all visible UI text in English. Test FIX placement/editing/dragging, DR
   creation from FIX and DR, bearing/distance calculations, downstream propagation,
   GCR creation and recalculation from either endpoint, validation,
