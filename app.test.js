@@ -1176,7 +1176,7 @@ test("point info formats coordinates as padded degrees and decimal minutes", () 
 
     assert.equal(
         app.elements.pointPosition.value,
-        "S 12° 30.000' - W 003° 15.000'"
+        "S 12° 30.00' - W 003° 15.00'"
     );
 });
 
@@ -1189,11 +1189,47 @@ test("FIX position edits parse formatted coordinates and reject invalid minutes"
 
     assert.ok(Math.abs(app.markers[0].getLatLng().lat - (-12.5083333333)) < 0.000001);
     assert.ok(Math.abs(app.markers[0].getLatLng().lng - (-3.2541666667)) < 0.000001);
+    assert.equal(
+        app.elements.pointPosition.value,
+        "S 12° 30.50' - W 003° 15.25'"
+    );
 
     app.elements.pointPosition.value = "N 90° 00.001' - E 010° 00.000'";
     app.submit("pointInfo");
     assert.equal(app.markers[0].getLatLng().lat, -12.508333333333333);
     assert.match(app.text(), /format N 54°/);
+});
+
+test("FIX position parsing accepts flexible minute precision, optional separators, and east O", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+
+    [
+        ["N 12° 4.4' E 3° 5'", 12 + 4.4 / 60, 3 + 5 / 60],
+        ["S 12° 4.40' - O 3° 5.00'", -(12 + 4.4 / 60), 3 + 5 / 60],
+        ["N 12° 4.400' O 3°", 12 + 4.4 / 60, 3],
+        ["S 12° W 3° 5.250'", -12, -(3 + 5.25 / 60)]
+    ].forEach(([position, latitude, longitude]) => {
+        app.elements.pointPosition.value = position;
+        app.submit("pointInfo");
+        assert.ok(Math.abs(app.markers[0].getLatLng().lat - latitude) < 1e-10);
+        assert.ok(Math.abs(app.markers[0].getLatLng().lng - longitude) < 1e-10);
+    });
+
+    assert.equal(app.elements.pointPosition.value, "S 12° 00.00' - W 003° 05.25'");
+});
+
+test("FIX position input does not apply a conflicting native format pattern", () => {
+    const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
+    const pointPositionInput = html.match(/<input\b[^>]*id="pointPosition"[^>]*>/);
+
+    assert.ok(pointPositionInput);
+    assert.doesNotMatch(pointPositionInput[0], /\spattern=/);
+    assert.match(
+        pointPositionInput[0],
+        /placeholder="N 54° 10\.12' - E 10° 12\.34'"/
+    );
 });
 
 test("map point labels escape custom text and refresh coordinates after edits", () => {

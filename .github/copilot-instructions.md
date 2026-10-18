@@ -70,8 +70,12 @@
   has exactly one defining inbound line.
 - Selecting a FIX or DR shows its label and coordinates in the lower-left info
   panel; FIX coordinates and labels are editable, while DR coordinates are
-  read-only. Display coordinates as `N dd° mm.mmm' - E ddd° mm.mmm'` (using the
-  appropriate S/W hemispheres) and accept this same format when editing a FIX.
+  read-only. Display info-panel coordinates as `N dd° mm.mm' - E ddd° mm.mm'`
+  (using the appropriate S/W hemispheres), rounding minutes to two decimal
+  places. When editing a FIX, accept variable minute precision, omitted minutes
+  as zero, optional ` - ` between latitude and longitude, east as E or O, and
+  degrees without leading zeros; keep rendered map labels in their existing
+  one-decimal format.
   Selecting a line shows editable bearing and distance. Confirm
   deletion and keep references valid; deleting a point/line with dependent DRs
   must clearly confirm the dependent cascade before removing those objects.

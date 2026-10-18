@@ -462,7 +462,7 @@ function setInfoMessage(message) {
     interceptInfo.hidden = true;
 }
 
-function formatPositionCoordinate(value, isLatitude, precision = 3) {
+function formatPositionCoordinate(value, isLatitude, precision = 2) {
     let degrees = Math.floor(Math.abs(value));
     const minuteScale = 10 ** precision;
     let minutes =
@@ -508,7 +508,7 @@ function formatMapPosition(latlng) {
 
 function parsePosition(value) {
     const match = value.match(
-        /^\s*([NS])\s*(\d{1,2})°\s*(\d{1,2})\.(\d{3})'\s*-\s*([EW])\s*(\d{1,3})°\s*(\d{1,2})\.(\d{3})'\s*$/i
+        /^\s*([NS])\s*(\d{1,2})°(?:\s*(\d{1,2})(?:\.(\d+))?')?\s*(?:-\s*)?([EWO])\s*(\d{1,3})°(?:\s*(\d{1,2})(?:\.(\d+))?')?\s*$/i
     );
     if (!match) {
         return null;
@@ -518,11 +518,11 @@ function parsePosition(value) {
         latitudeFractionText, longitudeHemisphere, longitudeDegreesText,
         longitudeMinutesText, longitudeFractionText] = match;
     const latitudeDegrees = Number(latitudeDegreesText);
-    const latitudeMinutes =
-        Number(latitudeMinutesText) + Number("0." + latitudeFractionText);
+    const latitudeMinutes = Number(latitudeMinutesText || 0) +
+        Number(latitudeFractionText ? "0." + latitudeFractionText : 0);
     const longitudeDegrees = Number(longitudeDegreesText);
-    const longitudeMinutes =
-        Number(longitudeMinutesText) + Number("0." + longitudeFractionText);
+    const longitudeMinutes = Number(longitudeMinutesText || 0) +
+        Number(longitudeFractionText ? "0." + longitudeFractionText : 0);
     if (
         latitudeMinutes >= 60 ||
         longitudeMinutes >= 60 ||
@@ -1883,7 +1883,7 @@ function applyPointEdits(event) {
         (selectedObject.type === "FIX" && !position)
     ) {
         infoMessage.textContent =
-            "Enter a label and position in the format N 54° 10.123' - E 010° 12.456'.";
+            "Enter a label and position in the format N 54° 10.12' - E 10° 12.34'.";
         return;
     }
 
