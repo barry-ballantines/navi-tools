@@ -97,10 +97,11 @@
   reporting.
 
 ## Map overlay behavior
-- Grid labels use hemisphere and padded degrees, with rounded whole minutes
-  only when non-zero (for example, `N 30°`, `N 30° 12'`). Center labels over
-  grid lines at the visible map's outer borders, use a translucent background,
-  and redraw the graticule after map movement, zoom, or resize.
+- Grid labels use hemisphere and padded degrees, showing minutes only when
+  non-zero and adding fractional-minute precision as grid spacing requires
+  (for example, `N 30°`, `N 30° 12'`, `N 30° 12.3'`). Center labels over grid
+  lines at the visible map's outer borders, use a translucent background, and
+  redraw the graticule after map movement, zoom, or resize.
 
 ## Workflows and conventions
 - Run `python navitools.py` from the project root: `index.html` lookup and static

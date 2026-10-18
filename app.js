@@ -60,21 +60,30 @@ const seamark = L.tileLayer(
 
 const gridSteps = [180, 90, 45, 30, 15, 6, 3, 2, 1, 0.5, 0.25, 0.1, 0.05, 0.02, 0.01, 0.005];
 
-function formatGridCoordinate(value, isLatitude) {
+function gridMinutePrecision(gridStep) {
+    const gridStepMinutes = gridStep * 60;
+    return Math.max(0, Math.ceil(-Math.log10(gridStepMinutes)));
+}
+
+function formatGridCoordinate(value, isLatitude, precision = 0) {
     const hemisphere = isLatitude
         ? (value < 0 ? "S" : "N")
         : (value < 0 ? "W" : "E");
-    const totalMinutes = Math.round(Math.abs(value) * 60);
-    const degrees = Math.floor(totalMinutes / 60);
-    const minutes = totalMinutes % 60;
+    const minuteScale = 10 ** precision;
+    const totalMinutes = Math.round(Math.abs(value) * 60 * minuteScale);
+    const degrees = Math.floor(totalMinutes / (60 * minuteScale));
+    const minutes = (totalMinutes % (60 * minuteScale)) / minuteScale;
     const degreeDigits = isLatitude ? 2 : 3;
+    const minuteText = minutes
+        .toFixed(precision)
+        .replace(/(\.\d*[1-9])0+$|\.0+$/, "$1");
 
     return (
         hemisphere +
         " " +
         String(degrees).padStart(degreeDigits, "0") +
         "°" +
-        (minutes ? " " + String(minutes).padStart(2, "0") + "'" : "")
+        (minutes ? " " + minuteText.padStart(2, "0") + "'" : "")
     );
 }
 
@@ -106,6 +115,7 @@ const CoordinateGrid = L.GridLayer.extend({
 
         const context = tile.getContext("2d");
         const step = gridSteps[Math.min(coords.z, gridSteps.length - 1)];
+        const minutePrecision = gridMinutePrecision(step);
         const pixelBounds = map.getPixelBounds();
         const tileTopLeft = L.point(coords.x * size.x, coords.y * size.y);
         const tileBottomRight = L.point(
@@ -138,7 +148,11 @@ const CoordinateGrid = L.GridLayer.extend({
             context.stroke();
 
             if (x >= leftBorderX && x <= rightBorderX) {
-                const label = formatGridCoordinate(longitude, false);
+                const label = formatGridCoordinate(
+                    longitude,
+                    false,
+                    minutePrecision
+                );
 
                 if (topBorderY >= 0 && topBorderY <= size.y) {
                     drawGridLabel(
@@ -177,7 +191,11 @@ const CoordinateGrid = L.GridLayer.extend({
             context.lineTo(size.x, y);
             context.stroke();
             if (y >= topBorderY && y <= bottomBorderY) {
-                const label = formatGridCoordinate(latitude, true);
+                const label = formatGridCoordinate(
+                    latitude,
+                    true,
+                    minutePrecision
+                );
 
                 if (leftBorderX >= 0 && leftBorderX <= size.x) {
                     drawGridLabel(

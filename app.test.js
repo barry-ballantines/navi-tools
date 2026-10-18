@@ -410,9 +410,9 @@ function createApp(options = {}) {
             handlers.zoomend.forEach(handler => handler());
         },
         viewport: () => ({ center: mapCenter, zoom: mapZoom }),
-        formatGridCoordinate: (value, isLatitude) =>
+        formatGridCoordinate: (value, isLatitude, precision) =>
             vm.runInNewContext(
-                `formatGridCoordinate(${value}, ${isLatitude})`,
+                `formatGridCoordinate(${value}, ${isLatitude}, ${precision})`,
                 sandboxContext
             ),
         click: (lat, lng) =>
@@ -1329,13 +1329,35 @@ test("the coordinate grid renders canvas lines and coordinate labels", () => {
     );
 });
 
-test("grid labels use padded degrees and rounded whole minutes", () => {
+test("grid labels use padded degrees and precision appropriate to grid spacing", () => {
     const app = createApp();
     assert.equal(app.formatGridCoordinate(30, true), "N 30°");
     assert.equal(app.formatGridCoordinate(30.2, true), "N 30° 12'");
     assert.equal(app.formatGridCoordinate(-12.25, true), "S 12° 15'");
     assert.equal(app.formatGridCoordinate(10.2666666667, false), "E 010° 16'");
     assert.equal(app.formatGridCoordinate(-3.999999, false), "W 004°");
+    assert.equal(app.formatGridCoordinate(30 + 12.1 / 60, true, 1), "N 30° 12.1'");
+    assert.equal(app.formatGridCoordinate(30.2, true, 1), "N 30° 12'");
+    assert.equal(app.formatGridCoordinate(30 + 12.12 / 60, true, 2), "N 30° 12.12'");
+});
+
+test("zoomed-in grid labels show fractional minutes where grid spacing requires it", () => {
+    const app = createApp();
+    app.setGridPixelBounds({
+        min: { x: 10, y: 10 },
+        max: { x: 246, y: 246 }
+    });
+
+    app.grid().createTile({ x: 0, y: 0, z: 15 });
+
+    assert.equal(
+        app.gridLabels.some(label => /^[EW] \d{3}° \d{2}\.\d+'$/.test(label)),
+        true
+    );
+    assert.equal(
+        app.gridLabels.some(label => /^[NS] \d{2}° \d{2}\.\d+'$/.test(label)),
+        true
+    );
 });
 
 test("grid labels only appear where grid lines meet the viewport border", () => {
