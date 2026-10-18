@@ -232,6 +232,7 @@ L.control.layers(
 let mode = null;
 let points = [];
 let navigationLines = [];
+let bearingLines = [];
 let greatCircleRoutes = [];
 let objects = [];
 let selectedObject = null;
@@ -252,12 +253,19 @@ const lineBearing = document.getElementById("lineBearing");
 const lineDistance = document.getElementById("lineDistance");
 const drButton = document.getElementById("drTool");
 const gcrButton = document.getElementById("gcrTool");
+const brgToButton = document.getElementById("brgToTool");
 const drPopup = document.getElementById("drPopup");
 const drForm = document.getElementById("drForm");
 const drStartLabel = document.getElementById("drStartLabel");
 const drBearing = document.getElementById("drBearing");
 const drDistance = document.getElementById("drDistance");
 const drError = document.getElementById("drError");
+const lineTitle = document.getElementById("lineTitle");
+const brgToPopup = document.getElementById("brgToPopup");
+const brgToForm = document.getElementById("brgToForm");
+const brgToFixLabel = document.getElementById("brgToFixLabel");
+const brgToBearing = document.getElementById("brgToBearing");
+const brgToError = document.getElementById("brgToError");
 const compassRose = document.querySelector(".compass-rose");
 const magneticCompassRose = document.getElementById("magCompassRose");
 const magneticVariationText = document.getElementById("magCompassTextTop");
@@ -537,6 +545,7 @@ function showLineInfo(line) {
     infoMessage.textContent = "";
     pointInfo.hidden = true;
     lineInfo.hidden = false;
+    lineTitle.textContent = bearingLines.includes(line) ? "BRG TO line" : "DR leg";
     lineBearing.value = line.bearing;
     lineDistance.value = line.distanceNM;
 }
@@ -552,6 +561,13 @@ function updateSelectionStyle() {
                 : { color: "red", weight: 3 }
         )
     );
+    bearingLines.forEach(line =>
+        line.layer.setStyle(
+            line === selectedObject
+                ? { color: "orange", weight: 5, dashArray: "6, 6" }
+                : { color: "#555", weight: 3, dashArray: "6, 6" }
+        )
+    );
     greatCircleRoutes.forEach(route =>
         route.layer.setStyle({
             color: "#003366",
@@ -563,6 +579,10 @@ function updateSelectionStyle() {
         !selectedObject ||
         !points.includes(selectedObject) ||
         selectedObject.type !== "FIX";
+    brgToButton.disabled =
+        !selectedObject ||
+        !points.includes(selectedObject) ||
+        selectedObject.type !== "FIX";
 }
 
 function selectObject(object) {
@@ -570,7 +590,7 @@ function selectObject(object) {
     updateSelectionStyle();
     if (points.includes(object)) {
         showPointInfo(object);
-    } else if (navigationLines.includes(object)) {
+    } else if (navigationLines.includes(object) || bearingLines.includes(object)) {
         showLineInfo(object);
     } else if (greatCircleRoutes.includes(object)) {
         setInfoMessage(
@@ -698,6 +718,33 @@ function updateGreatCircleRoutesForPoint(point) {
         .forEach(updateGreatCircleRoute);
 }
 
+function distanceNMBetween(first, second) {
+    const radians = degrees => degrees * Math.PI / 180;
+    const latitudeDifference = radians(second.lat - first.lat);
+    const longitudeDifference = radians(second.lng - first.lng);
+    const latitude1 = radians(first.lat);
+    const latitude2 = radians(second.lat);
+    const haversine =
+        Math.sin(latitudeDifference / 2) ** 2 +
+        Math.cos(latitude1) * Math.cos(latitude2) *
+        Math.sin(longitudeDifference / 2) ** 2;
+    return 2 * 6371000 * Math.asin(Math.sqrt(Math.min(1, haversine))) / 1852;
+}
+
+function updateBearingLine(line, updateLabels = true) {
+    const endpoint = destinationPoint(
+        line.fixPoint.latlng,
+        (line.bearing + 180) % 360,
+        line.distanceNM
+    );
+    line.startPoint.latlng = endpoint;
+    line.handle.setLatLng(endpoint);
+    line.layer.setLatLngs([endpoint, line.fixPoint.latlng]);
+    if (updateLabels) {
+        updateLineAnnotation(line);
+    }
+}
+
 function updateLineAndDescendants(line, updateLabels = true) {
     const start = line.startPoint.latlng;
     const end = destinationPoint(start, line.bearing, line.distanceNM);
@@ -775,7 +822,7 @@ function updateLineAnnotation(line) {
 }
 
 function updateLineAnnotations() {
-    navigationLines.forEach(updateLineAnnotation);
+    navigationLines.concat(bearingLines).forEach(updateLineAnnotation);
 }
 
 map.on("moveend", updateLineAnnotations);
@@ -806,11 +853,17 @@ function createPoint(type, latlng, label, id) {
             navigationLines
                 .filter(line => line.startPoint === point)
                 .forEach(line => updateLineAndDescendants(line, false));
+            bearingLines
+                .filter(line => line.fixPoint === point)
+                .forEach(line => updateBearingLine(line, false));
             updateGreatCircleRoutesForPoint(point);
         });
         point.marker.on("dragend", () => {
             point.marker.setIcon(pointIcon(point, point === selectedObject));
             refreshLineLabelsFromPoint(point);
+            bearingLines
+                .filter(line => line.fixPoint === point)
+                .forEach(updateLineAnnotation);
             if (selectedObject === point) {
                 showPointInfo(point);
             }
@@ -865,6 +918,78 @@ function createDrLine(startPoint, bearingDegrees, distanceNM, options = {}) {
     return line;
 }
 
+function createBearingLine(fixPoint, bearingDegrees, distanceNM, options = {}) {
+    const startPoint = {
+        latlng: destinationPoint(
+            fixPoint.latlng,
+            (bearingDegrees + 180) % 360,
+            distanceNM
+        )
+    };
+    const line = {
+        id: options.id || "line-" + nextLineId++,
+        fixPoint,
+        startPoint,
+        endPoint: fixPoint,
+        bearing: bearingDegrees,
+        distanceNM,
+        layer: L.polyline(
+            [startPoint.latlng, fixPoint.latlng],
+            {
+                color: "#555",
+                weight: 3,
+                dashArray: "6, 6",
+                bubblingMouseEvents: false
+            }
+        ).addTo(map),
+        handle: null,
+        annotation: null
+    };
+    line.handle = L.marker(startPoint.latlng, {
+        draggable: true,
+        zIndexOffset: 1000,
+        bubblingMouseEvents: false,
+        title: "Drag to change BRG TO length",
+        icon: L.divIcon({
+            className: "navigation-bearing-handle",
+            html: "",
+            iconSize: [8, 8],
+            iconAnchor: [4, 4]
+        })
+    }).addTo(map);
+    line.annotation = L.marker(startPoint.latlng, {
+        icon: L.divIcon({
+            className: "line-annotation-icon",
+            html: "",
+            iconSize: [0, 0],
+            iconAnchor: [0, 0]
+        }),
+        interactive: false,
+        keyboard: false,
+        bubblingMouseEvents: false
+    }).addTo(map);
+    line.layer.on("click", () => selectObject(line));
+    line.handle.on("click", () => selectObject(line));
+    line.handle.on("drag", () => {
+        const draggedPosition = line.handle.getLatLng();
+        line.distanceNM = Math.max(
+            distanceNMBetween(draggedPosition, fixPoint.latlng),
+            0.001
+        );
+        updateBearingLine(line);
+    });
+    line.handle.on("dragend", () => {
+        if (selectedObject === line) {
+            showLineInfo(line);
+        }
+        persistNavigationState();
+    });
+    bearingLines.push(line);
+    objects.push(line.layer, line.handle, line.annotation);
+    updateLineAnnotation(line);
+    return line;
+}
+
 function createGreatCircleRoute(startPoint, endPoint, id) {
     const route = {
         id: id || "line-" + nextLineId++,
@@ -905,6 +1030,12 @@ function serializeNavigationState() {
             id: line.id,
             startPointId: line.startPoint.id,
             endPointId: line.endPoint.id,
+            bearing: line.bearing,
+            distanceNM: line.distanceNM
+        })),
+        bearingLines: bearingLines.map(line => ({
+            id: line.id,
+            fixPointId: line.fixPoint.id,
             bearing: line.bearing,
             distanceNM: line.distanceNM
         })),
@@ -959,6 +1090,8 @@ function validateStoredNavigationState(state) {
         state.version !== 1 ||
         !Array.isArray(state.points) ||
         !Array.isArray(state.lines) ||
+        (state.bearingLines !== undefined &&
+            !Array.isArray(state.bearingLines)) ||
         (state.greatCircleRoutes !== undefined &&
             !Array.isArray(state.greatCircleRoutes)) ||
         !Number.isInteger(state.nextFixNumber) ||
@@ -1070,6 +1203,25 @@ function validateStoredNavigationState(state) {
         highestLineId = Math.max(highestLineId, Number(routeIdMatch[1]));
         lineIds.add(route.id);
     });
+    (state.bearingLines || []).forEach(line => {
+        const lineIdMatch = line && /^line-(\d+)$/.exec(line.id);
+        const fixPoint = line && pointsById.get(line.fixPointId);
+        if (
+            !lineIdMatch ||
+            lineIds.has(line.id) ||
+            !fixPoint ||
+            fixPoint.type !== "FIX" ||
+            !Number.isFinite(line.bearing) ||
+            line.bearing < 0 ||
+            line.bearing >= 360 ||
+            !Number.isFinite(line.distanceNM) ||
+            line.distanceNM <= 0
+        ) {
+            invalid("BRG TO line record");
+        }
+        highestLineId = Math.max(highestLineId, Number(lineIdMatch[1]));
+        lineIds.add(line.id);
+    });
     if (state.nextLineId <= highestLineId) {
         invalid("line counter");
     }
@@ -1142,6 +1294,14 @@ function restoreNavigationState() {
                 route.id
             );
         });
+        (state.bearingLines || []).forEach(line => {
+            createBearingLine(
+                restoredPoints.get(line.fixPointId),
+                line.bearing,
+                line.distanceNM,
+                { id: line.id }
+            );
+        });
         updateSelectionStyle();
     } catch (error) {
         showStorageError("restore", error);
@@ -1179,6 +1339,28 @@ function closeDrPopup() {
     activateButton(null);
 }
 
+function openBearingPopup() {
+    if (
+        !points.includes(selectedObject) ||
+        selectedObject.type !== "FIX"
+    ) {
+        return;
+    }
+    mode = null;
+    activateButton("brgToTool");
+    brgToFixLabel.textContent = selectedObject.label;
+    brgToBearing.value = "";
+    brgToError.textContent = "";
+    brgToPopup.hidden = false;
+    brgToBearing.focus();
+}
+
+function closeBearingPopup() {
+    brgToPopup.hidden = true;
+    brgToError.textContent = "";
+    activateButton(null);
+}
+
 function applyPointEdits(event) {
     event.preventDefault();
     if (!points.includes(selectedObject)) {
@@ -1203,6 +1385,9 @@ function applyPointEdits(event) {
         navigationLines
             .filter(line => line.startPoint === selectedObject)
             .forEach(updateLineAndDescendants);
+        bearingLines
+            .filter(line => line.fixPoint === selectedObject)
+            .forEach(updateBearingLine);
         updateGreatCircleRoutesForPoint(selectedObject);
     }
     selectedObject.marker.setIcon(pointIcon(selectedObject, true));
@@ -1212,7 +1397,10 @@ function applyPointEdits(event) {
 
 function applyLineEdits(event) {
     event.preventDefault();
-    if (!navigationLines.includes(selectedObject)) {
+    if (
+        !navigationLines.includes(selectedObject) &&
+        !bearingLines.includes(selectedObject)
+    ) {
         return;
     }
 
@@ -1233,7 +1421,11 @@ function applyLineEdits(event) {
 
     selectedObject.bearing = bearingDegrees % 360;
     selectedObject.distanceNM = distance;
-    updateLineAndDescendants(selectedObject);
+    if (bearingLines.includes(selectedObject)) {
+        updateBearingLine(selectedObject);
+    } else {
+        updateLineAndDescendants(selectedObject);
+    }
     showLineInfo(selectedObject);
     persistNavigationState();
 }
@@ -1254,12 +1446,35 @@ function deleteSelectedObject() {
     const selectedLine = navigationLines.includes(selectedObject)
         ? selectedObject
         : null;
+    const selectedBearingLine = bearingLines.includes(selectedObject)
+        ? selectedObject
+        : null;
     const selectedGreatCircleRoute = greatCircleRoutes.includes(selectedObject)
         ? selectedObject
         : null;
     const selectedPoint = points.includes(selectedObject)
         ? selectedObject
         : null;
+    if (selectedBearingLine) {
+        if (!window.confirm("Delete the selected BRG TO line?")) {
+            return;
+        }
+        map.removeLayer(selectedBearingLine.layer);
+        map.removeLayer(selectedBearingLine.annotation);
+        map.removeLayer(selectedBearingLine.handle);
+        const removedLayers = new Set([
+            selectedBearingLine.layer,
+            selectedBearingLine.annotation,
+            selectedBearingLine.handle
+        ]);
+        objects = objects.filter(object => !removedLayers.has(object));
+        bearingLines = bearingLines.filter(line => line !== selectedBearingLine);
+        selectedObject = null;
+        updateSelectionStyle();
+        setInfoMessage("BRG TO line deleted");
+        persistNavigationState();
+        return;
+    }
     const affectedLines = new Set();
     const affectedPoints = new Set();
     if (selectedGreatCircleRoute) {
@@ -1296,12 +1511,28 @@ function deleteSelectedObject() {
             affectedPoints.has(route.endPoint)
         )
     );
+    const affectedBearingLines = new Set(
+        bearingLines.filter(line => affectedPoints.has(line.fixPoint))
+    );
 
     const cascades = affectedPoints.size > 1 || affectedLines.size > 1;
-    const message = cascades
-        ? "Delete this object and " + (affectedPoints.size - (selectedPoint ? 1 : 0)) +
-            " dependent DR point(s) and their lines?"
-        : "Delete the selected " + (selectedLine ? "DR leg and its DR point" : "point") + "?";
+    let message;
+    if (selectedPoint && selectedPoint.type === "FIX" && affectedBearingLines.size) {
+        message = "Delete the selected FIX and its " + affectedBearingLines.size +
+            " attached BRG TO line(s)";
+        if (cascades) {
+            message += ", plus " + (affectedPoints.size - 1) +
+                " dependent DR point(s) and their lines";
+        }
+        message += "?";
+    } else if (cascades) {
+        message = "Delete this object and " +
+            (affectedPoints.size - (selectedPoint ? 1 : 0)) +
+            " dependent DR point(s) and their lines?";
+    } else {
+        message = "Delete the selected " +
+            (selectedLine ? "DR leg and its DR point" : "point") + "?";
+    }
     if (!window.confirm(message)) {
         return;
     }
@@ -1311,21 +1542,32 @@ function deleteSelectedObject() {
         map.removeLayer(line.annotation);
     });
     affectedGreatCircleRoutes.forEach(route => map.removeLayer(route.layer));
+    affectedBearingLines.forEach(line => {
+        map.removeLayer(line.layer);
+        map.removeLayer(line.annotation);
+        map.removeLayer(line.handle);
+    });
     affectedPoints.forEach(point => map.removeLayer(point.marker));
     const removedLayers = new Set([
         ...Array.from(affectedLines, line => [line.layer, line.annotation]).flat(),
+        ...Array.from(affectedBearingLines, line =>
+            [line.layer, line.annotation, line.handle]
+        ).flat(),
         ...Array.from(affectedGreatCircleRoutes, route => route.layer),
         ...Array.from(affectedPoints, point => point.marker)
     ]);
     objects = objects.filter(object => !removedLayers.has(object));
     navigationLines = navigationLines.filter(line => !affectedLines.has(line));
+    bearingLines = bearingLines.filter(line => !affectedBearingLines.has(line));
     greatCircleRoutes = greatCircleRoutes.filter(
         route => !affectedGreatCircleRoutes.has(route)
     );
     points = points.filter(point => !affectedPoints.has(point));
     selectedObject = null;
     updateSelectionStyle();
-    setInfoMessage("Object and dependent DRs deleted");
+    setInfoMessage(affectedBearingLines.size
+        ? "FIX and attached BRG TO lines deleted"
+        : "Object and dependent DRs deleted");
     persistNavigationState();
 }
 
@@ -1377,8 +1619,11 @@ gcrButton.onclick = () => {
         gcrStartPoint.label
     );
 };
+brgToButton.onclick = openBearingPopup;
 document.getElementById("drCancel").onclick = closeDrPopup;
+document.getElementById("brgToCancel").onclick = closeBearingPopup;
 drPopup.addEventListener("click", event => event.stopPropagation());
+brgToPopup.addEventListener("click", event => event.stopPropagation());
 
 drForm.addEventListener("submit", event => {
     event.preventDefault();
@@ -1402,6 +1647,27 @@ drForm.addEventListener("submit", event => {
     createDrLine(startPoint, bearingDegrees % 360, distance);
 });
 
+brgToForm.addEventListener("submit", event => {
+    event.preventDefault();
+    const bearingDegrees = Number(brgToBearing.value);
+    if (
+        brgToBearing.value.trim() === "" ||
+        !Number.isFinite(bearingDegrees) ||
+        bearingDegrees < 0 ||
+        bearingDegrees > 360 ||
+        !points.includes(selectedObject) ||
+        selectedObject.type !== "FIX"
+    ) {
+        brgToError.textContent = "Enter a bearing from 0° to 360°.";
+        return;
+    }
+    const fixPoint = selectedObject;
+    closeBearingPopup();
+    const line = createBearingLine(fixPoint, bearingDegrees % 360, 5);
+    selectObject(line);
+    persistNavigationState();
+});
+
 pointInfo.addEventListener("submit", applyPointEdits);
 lineInfo.addEventListener("submit", applyLineEdits);
 
@@ -1410,11 +1676,13 @@ document.getElementById("clearTool").onclick = () => {
     objects = [];
     points = [];
     navigationLines = [];
+    bearingLines = [];
     greatCircleRoutes = [];
     selectedObject = null;
     mode = null;
     gcrStartPoint = null;
     drPopup.hidden = true;
+    brgToPopup.hidden = true;
     nextFixNumber = 1;
     nextDrNumber = 1;
     nextPointId = 1;

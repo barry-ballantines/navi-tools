@@ -52,6 +52,7 @@
     <button id="fixTool">FIX</button>
     <button id="drTool" disabled>DR</button>
     <button id="gcrTool" disabled>GCR</button>
+    <button id="brgToTool" disabled>BRG TO</button>
     <button id="clearTool">Clear</button>
 </div>
 
@@ -60,6 +61,7 @@
         Select FIX to place a fix<br>
         Select a point, then DR to create a dead-reckoning leg<br>
         Select a FIX, then GCR to create a Great Circle Route<br>
+        Select a FIX, then BRG TO to enter a true bearing<br>
         Click an object and press Delete to remove it
     </div>
     <form id="pointInfo" hidden>
@@ -102,6 +104,20 @@
         <div class="popup-actions">
             <button type="submit">OK</button>
             <button id="drCancel" type="button">Cancel</button>
+        </div>
+    </form>
+</div>
+
+<div id="brgToPopup" class="tool-popup" hidden>
+    <form id="brgToForm">
+        <strong>Create BRG TO line to <span id="brgToFixLabel"></span></strong>
+        <label>True bearing (0°–360°)
+            <input id="brgToBearing" type="number" min="0" max="360" step="any" required>
+        </label>
+        <div id="brgToError" role="alert"></div>
+        <div class="popup-actions">
+            <button type="submit">OK</button>
+            <button id="brgToCancel" type="button">Cancel</button>
         </div>
     </form>
 </div>

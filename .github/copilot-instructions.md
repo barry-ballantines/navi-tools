@@ -19,7 +19,7 @@
 
 ## Navigation tools
 - Keep navigation data separate from Leaflet layers so points can be shared as the
-  start of multiple directed lines. The toolbar has FIX, DR, and GCR tools; do not
+  start of multiple directed lines. The toolbar has FIX, DR, GCR, and BRG TO tools; do not
   reintroduce the retired LOS tool.
 - FIX stays active for map placement and labels new fixes `FIX 1`, `FIX 2`, etc.
   FIX positions are authoritative and can be edited in the lower-left info panel
@@ -35,6 +35,12 @@
   GCR routes in dark blue. Recalculate the route when either endpoint FIX moves,
   without moving the other endpoint. Persist route endpoint references and
   restore the routes alongside their FIXes.
+- Enable BRG TO only when a FIX is selected. It asks for a true bearing and creates
+  a dashed dark-gray line extending 5 nm from an independently draggable endpoint
+  toward the FIX. The endpoint may change the line length, but stays constrained to
+  the entered bearing. BRG TO lines have editable bearing/distance and labels,
+  persist with their FIX reference, and are deleted with that FIX; deleting a
+  BRG TO line never deletes its FIX.
 - Keep navigation marker roots absolutely positioned as required by Leaflet; use
   pseudo-elements for symbol artwork without overriding the marker's positioning,
   so the icon anchor, center dot, and line endpoint remain coincident.

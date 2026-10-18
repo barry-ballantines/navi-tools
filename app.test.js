@@ -28,10 +28,12 @@ function createApp(options = {}) {
     });
     const elements = Object.fromEntries(
         [
-            "info", "infoMessage", "fixTool", "drTool", "gcrTool", "clearTool",
+            "info", "infoMessage", "fixTool", "drTool", "gcrTool", "brgToTool", "clearTool",
             "pointInfo", "pointType", "pointLabel", "pointPosition",
-            "lineInfo", "lineBearing", "lineDistance", "drPopup", "drForm",
+            "lineInfo", "lineTitle", "lineBearing", "lineDistance", "drPopup", "drForm",
             "drStartLabel", "drBearing", "drDistance", "drError", "drCancel",
+            "brgToPopup", "brgToForm", "brgToFixLabel", "brgToBearing",
+            "brgToError", "brgToCancel",
             "magCompassRose", "magCompassTextTop", "magCompassTextBottom"
         ]
             .map(id => [id, element(id)])
@@ -39,8 +41,10 @@ function createApp(options = {}) {
     elements.pointInfo.hidden = true;
     elements.lineInfo.hidden = true;
     elements.drPopup.hidden = true;
+    elements.brgToPopup.hidden = true;
     elements.drTool.disabled = true;
     elements.gcrTool.disabled = true;
+    elements.brgToTool.disabled = true;
     const layers = new Set();
     const markers = [];
     const lines = [];
@@ -339,7 +343,13 @@ function createApp(options = {}) {
         storageValues,
         get markers() {
             return markers.filter(marker =>
-                Object.hasOwn(marker.options, "draggable")
+                Object.hasOwn(marker.options, "draggable") &&
+                Object.hasOwn(marker.options, "alt")
+            );
+        },
+        get bearingHandles() {
+            return markers.filter(marker =>
+                marker.options.icon.className === "navigation-bearing-handle"
             );
         },
         get annotations() {
@@ -481,6 +491,127 @@ test("DR is enabled for a selected point and creates a named DR leg", () => {
     assert.ok(Math.abs(app.lines[0].latlngs[1].lng - 1) < 0.001);
     assert.equal(app.elements.pointLabel.value, "DR 1");
     assert.equal(app.elements.drTool.disabled, false);
+});
+
+test("BRG TO creates a dashed 5 nm line ending at the selected FIX", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    const fix = app.markers[0];
+
+    assert.equal(app.elements.brgToTool.disabled, false);
+    app.select("brgToTool");
+    assert.equal(app.elements.brgToPopup.hidden, false);
+    assert.equal(app.elements.brgToFixLabel.textContent, "FIX 1");
+    app.elements.brgToBearing.value = "90";
+    app.submit("brgToForm");
+
+    const line = app.lines[0];
+    assert.equal(app.elements.brgToPopup.hidden, true);
+    assert.equal(line.options.color, "#555");
+    assert.equal(line.options.dashArray, "6, 6");
+    assert.ok(Math.abs(line.latlngs[0].lng + 5 / 60) < 0.001);
+    assert.equal(line.latlngs[1], fix.getLatLng());
+    assert.equal(app.bearingHandles.length, 1);
+    assert.equal(app.bearingHandles[0].options.icon.iconSize[0] < 22, true);
+    assert.equal(app.bearingHandles[0].options.zIndexOffset, 1000);
+    assert.equal(app.elements.lineTitle.textContent, "BRG TO line");
+    assert.equal(app.elements.lineBearing.value, 90);
+    assert.equal(app.elements.lineDistance.value, 5);
+    assert.match(app.annotations[0].icon.html, /line-annotation-bearing">090°/);
+    assert.match(app.annotations[0].icon.html, /line-annotation-distance">5\.0 nm/);
+});
+
+test("BRG TO handle changes length on its fixed bearing and line edits recalculate it", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    app.select("brgToTool");
+    app.elements.brgToBearing.value = "90";
+    app.submit("brgToForm");
+
+    const handle = app.bearingHandles[0];
+    const originalStart = app.lines[0].latlngs[0];
+    handle.dragTo({ lat: 0.05, lng: -0.1 });
+    handle.endDrag();
+    assert.ok(Math.abs(handle.getLatLng().lat) < 1e-10);
+    assert.ok(handle.getLatLng().lng < originalStart.lng);
+    assert.equal(app.lines[0].latlngs[0], handle.getLatLng());
+    assert.equal(app.elements.lineDistance.value > 5, true);
+    assert.equal(app.lines[0].latlngs[1], app.markers[0].getLatLng());
+
+    app.lines[0].fire("click");
+    app.elements.lineBearing.value = "180";
+    app.elements.lineDistance.value = "10";
+    app.submit("lineInfo");
+    assert.ok(app.lines[0].latlngs[0].lat > 0);
+    assert.equal(app.lines[0].latlngs[1], app.markers[0].getLatLng());
+    assert.match(app.annotations[0].icon.html, /line-annotation-bearing">180°/);
+    assert.match(app.annotations[0].icon.html, /line-annotation-distance">10\.0 nm/);
+});
+
+test("moving a FIX moves attached BRG TO geometry without changing its bearing or length", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    app.select("brgToTool");
+    app.elements.brgToBearing.value = "90";
+    app.submit("brgToForm");
+    const line = app.lines[0];
+    const handle = app.bearingHandles[0];
+    const originalDistance = app.elements.lineDistance.value;
+
+    app.markers[0].dragTo({ lat: 5, lng: 10 });
+    assert.equal(line.latlngs[1], app.markers[0].getLatLng());
+    assert.equal(handle.getLatLng(), line.latlngs[0]);
+    assert.ok(Math.abs(handle.getLatLng().lat - 5) < 0.001);
+    assert.equal(app.elements.lineDistance.value, originalDistance);
+    app.endDrag(0);
+    assert.match(app.annotations[0].icon.html, /line-annotation-bearing">090°/);
+});
+
+test("BRG TO persists, deletes independently, and is removed with its FIX", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(1, 2);
+    app.select("brgToTool");
+    app.elements.brgToBearing.value = "45";
+    app.submit("brgToForm");
+
+    const savedWithBearingLine = new Map(app.storageValues);
+    const restored = createApp({ storageValues: app.storageValues });
+    assert.equal(restored.markers.length, 1);
+    assert.equal(restored.lines.length, 1);
+    assert.equal(restored.bearingHandles.length, 1);
+    assert.equal(restored.lines[0].options.dashArray, "6, 6");
+    restored.lines[0].fire("click");
+    restored.deleteKey();
+    assert.equal(restored.markers.length, 1);
+    assert.equal(restored.lines.length, 1);
+    const afterLineDelete = createApp({ storageValues: restored.storageValues });
+    assert.equal(afterLineDelete.markers.length, 1);
+    assert.equal(afterLineDelete.lines.length, 0);
+
+    const withBearingLine = createApp({ storageValues: savedWithBearingLine });
+    withBearingLine.markers[0].fire("click");
+    withBearingLine.deleteKey();
+    assert.match(withBearingLine.confirmations[0], /attached BRG TO line/);
+    const afterFixDelete = createApp({ storageValues: withBearingLine.storageValues });
+    assert.equal(afterFixDelete.markers.length, 0);
+    assert.equal(afterFixDelete.lines.length, 0);
+});
+
+test("BRG TO rejects invalid bearings", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    app.select("brgToTool");
+    app.elements.brgToBearing.value = "361";
+    app.submit("brgToForm");
+
+    assert.equal(app.elements.brgToPopup.hidden, false);
+    assert.match(app.elements.brgToError.textContent, /bearing/);
+    assert.equal(app.lines.length, 0);
 });
 
 test("GCR connects a selected FIX to a new FIX with a dark-blue great-circle route", () => {
@@ -1093,6 +1224,14 @@ test("storage read, write, and invalid-data failures are shown to the user", () 
     failedGcrSave.select("gcrTool");
     failedGcrSave.click(3, 4);
     assert.match(failedGcrSave.text(), /Navigation data save failed/);
+
+    const failedBearingSave = createApp({ failStorageWrite: true });
+    failedBearingSave.select("fixTool");
+    failedBearingSave.click(1, 2);
+    failedBearingSave.select("brgToTool");
+    failedBearingSave.elements.brgToBearing.value = "90";
+    failedBearingSave.submit("brgToForm");
+    assert.match(failedBearingSave.text(), /Navigation data save failed/);
 
     const storageValues = new Map([
         ["navi-tools.navigation.v1", "{not valid JSON"]
