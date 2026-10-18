@@ -19,8 +19,8 @@
 
 ## Navigation tools
 - Keep navigation data separate from Leaflet layers so points can be shared as the
-  start of multiple directed lines. The toolbar has FIX, DR, GCR, and BRG TO tools; do not
-  reintroduce the retired LOS tool.
+  start of multiple directed lines. The toolbar has FIX, DR, GCR, BRG TO, and INT
+  tools; do not reintroduce the retired LOS tool.
 - FIX stays active for map placement and labels new fixes `FIX 1`, `FIX 2`, etc.
   FIX positions are authoritative and can be edited in the lower-left info panel
   or moved by dragging. Render a FIX as a small circle with a center dot.
@@ -41,6 +41,15 @@
   the entered bearing. BRG TO lines have editable bearing/distance and labels,
   persist with their FIX reference, and are deleted with that FIX; deleting a
   BRG TO line never deletes its FIX.
+- Enable INT only when a FIX is selected. It asks for a star name, zenith bearing,
+  and signed intercept distance; positive is TOWARDS and negative is AWAY. Plot a
+  dashed gray arrow from the AP FIX to a non-selectable star marker, an AWAY line
+  in the opposite direction for negative intercepts, and a solid perpendicular
+  LOP through the signed intercept position. The arrow endpoint and both LOP
+  endpoints are draggable length handles constrained to their respective
+  bearings. Selecting any INT line opens editable sight data; deleting an INT
+  line deletes the entire sight but not its AP, and deleting its AP deletes all
+  attached INT geometry. Persist and validate INT data with the navigation graph.
 - Keep navigation marker roots absolutely positioned as required by Leaflet; use
   pseudo-elements for symbol artwork without overriding the marker's positioning,
   so the icon anchor, center dot, and line endpoint remain coincident.
@@ -78,7 +87,8 @@
   initial map view if the saved viewport is invalid.
 - Keep all visible UI text in English. Test FIX placement/editing/dragging, DR
   creation from FIX and DR, bearing/distance calculations, downstream propagation,
-  GCR creation and recalculation from either endpoint, validation,
+  GCR   creation and recalculation from either endpoint, BRG TO and INT creation,
+  geometry, editing, dragging, deletion, persistence, validation,
   deletion/cancellation behavior, persistence across reloads, and storage failure
   reporting.
 

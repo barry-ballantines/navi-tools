@@ -233,6 +233,7 @@ let mode = null;
 let points = [];
 let navigationLines = [];
 let bearingLines = [];
+let intercepts = [];
 let greatCircleRoutes = [];
 let objects = [];
 let selectedObject = null;
@@ -254,6 +255,7 @@ const lineDistance = document.getElementById("lineDistance");
 const drButton = document.getElementById("drTool");
 const gcrButton = document.getElementById("gcrTool");
 const brgToButton = document.getElementById("brgToTool");
+const interceptButton = document.getElementById("intTool");
 const drPopup = document.getElementById("drPopup");
 const drForm = document.getElementById("drForm");
 const drStartLabel = document.getElementById("drStartLabel");
@@ -266,6 +268,17 @@ const brgToForm = document.getElementById("brgToForm");
 const brgToFixLabel = document.getElementById("brgToFixLabel");
 const brgToBearing = document.getElementById("brgToBearing");
 const brgToError = document.getElementById("brgToError");
+const interceptInfo = document.getElementById("interceptInfo");
+const interceptName = document.getElementById("interceptName");
+const interceptBearing = document.getElementById("interceptBearing");
+const interceptDistance = document.getElementById("interceptDistance");
+const intPopup = document.getElementById("intPopup");
+const intForm = document.getElementById("intForm");
+const intFixLabel = document.getElementById("intFixLabel");
+const intName = document.getElementById("intName");
+const intBearing = document.getElementById("intBearing");
+const intDistance = document.getElementById("intDistance");
+const intError = document.getElementById("intError");
 const compassRose = document.querySelector(".compass-rose");
 const magneticCompassRose = document.getElementById("magCompassRose");
 const magneticVariationText = document.getElementById("magCompassTextTop");
@@ -446,6 +459,7 @@ function setInfoMessage(message) {
     infoMessage.textContent = message;
     pointInfo.hidden = true;
     lineInfo.hidden = true;
+    interceptInfo.hidden = true;
 }
 
 function formatPositionCoordinate(value, isLatitude, precision = 3) {
@@ -534,6 +548,7 @@ function showPointInfo(point) {
     infoMessage.textContent = "";
     pointInfo.hidden = false;
     lineInfo.hidden = true;
+    interceptInfo.hidden = true;
     pointType.textContent = point.type + " point";
     pointLabel.value = point.label;
     pointPosition.value = formatPosition(point.latlng);
@@ -545,9 +560,20 @@ function showLineInfo(line) {
     infoMessage.textContent = "";
     pointInfo.hidden = true;
     lineInfo.hidden = false;
+    interceptInfo.hidden = true;
     lineTitle.textContent = bearingLines.includes(line) ? "BRG TO line" : "DR leg";
     lineBearing.value = line.bearing;
     lineDistance.value = line.distanceNM;
+}
+
+function showInterceptInfo(intercept) {
+    infoMessage.textContent = "";
+    pointInfo.hidden = true;
+    lineInfo.hidden = true;
+    interceptInfo.hidden = false;
+    interceptName.value = intercept.starName;
+    interceptBearing.value = intercept.bearing;
+    interceptDistance.value = intercept.interceptNM;
 }
 
 function updateSelectionStyle() {
@@ -568,6 +594,23 @@ function updateSelectionStyle() {
                 : { color: "#555", weight: 3, dashArray: "6, 6" }
         )
     );
+    intercepts.forEach(intercept => {
+        const selected = intercept === selectedObject;
+        const lineStyle = selected
+            ? { color: "orange", weight: 5 }
+            : { color: "#666", weight: 3 };
+        intercept.arrowLayer.setStyle({
+            ...lineStyle,
+            dashArray: "6, 6"
+        });
+        if (intercept.awayLayer) {
+            intercept.awayLayer.setStyle({
+                ...lineStyle,
+                dashArray: "6, 6"
+            });
+        }
+        intercept.lopLayer.setStyle(lineStyle);
+    });
     greatCircleRoutes.forEach(route =>
         route.layer.setStyle({
             color: "#003366",
@@ -583,6 +626,10 @@ function updateSelectionStyle() {
         !selectedObject ||
         !points.includes(selectedObject) ||
         selectedObject.type !== "FIX";
+    interceptButton.disabled =
+        !selectedObject ||
+        !points.includes(selectedObject) ||
+        selectedObject.type !== "FIX";
 }
 
 function selectObject(object) {
@@ -592,6 +639,8 @@ function selectObject(object) {
         showPointInfo(object);
     } else if (navigationLines.includes(object) || bearingLines.includes(object)) {
         showLineInfo(object);
+    } else if (intercepts.includes(object)) {
+        showInterceptInfo(object);
     } else if (greatCircleRoutes.includes(object)) {
         setInfoMessage(
             "Great Circle Route: " +
@@ -823,6 +872,7 @@ function updateLineAnnotation(line) {
 
 function updateLineAnnotations() {
     navigationLines.concat(bearingLines).forEach(updateLineAnnotation);
+    intercepts.forEach(renderIntercept);
 }
 
 map.on("moveend", updateLineAnnotations);
@@ -856,6 +906,9 @@ function createPoint(type, latlng, label, id) {
             bearingLines
                 .filter(line => line.fixPoint === point)
                 .forEach(line => updateBearingLine(line, false));
+            intercepts
+                .filter(intercept => intercept.apPoint === point)
+                .forEach(intercept => renderIntercept(intercept));
             updateGreatCircleRoutesForPoint(point);
         });
         point.marker.on("dragend", () => {
@@ -864,6 +917,9 @@ function createPoint(type, latlng, label, id) {
             bearingLines
                 .filter(line => line.fixPoint === point)
                 .forEach(updateLineAnnotation);
+            intercepts
+                .filter(intercept => intercept.apPoint === point)
+                .forEach(intercept => updateInterceptAnnotations(intercept));
             if (selectedObject === point) {
                 showPointInfo(point);
             }
@@ -990,6 +1046,382 @@ function createBearingLine(fixPoint, bearingDegrees, distanceNM, options = {}) {
     return line;
 }
 
+function interceptLineAnnotationIcon(bearing, suffix, angle, flipped) {
+    const sideClass = flipped ? " line-annotation-flipped" : "";
+    return L.divIcon({
+        className: "intercept-line-annotation-icon",
+        html:
+            '<span class="line-annotation-content' +
+            sideClass +
+            '" style="transform: translate(-50%, -50%) rotate(' +
+            angle.toFixed(2) +
+            'deg)"><span class="line-annotation-bearing">' +
+            String(Math.round(bearing) % 360).padStart(3, "0") +
+            '°</span><span class="line-annotation-distance">' +
+            suffix +
+            "</span></span>",
+        iconSize: [0, 0],
+        iconAnchor: [0, 0]
+    });
+}
+
+function updateInterceptAnnotation(marker, start, end, bearing, suffix) {
+    const startPoint = map.latLngToLayerPoint(start);
+    const endPoint = map.latLngToLayerPoint(end);
+    const dx = endPoint.x - startPoint.x;
+    const dy = endPoint.y - startPoint.y;
+    const rawAngle = Math.atan2(dy, dx) * 180 / Math.PI;
+    const flipped = rawAngle > 90 || rawAngle < -90;
+    const angle = flipped
+        ? rawAngle + (rawAngle > 90 ? -180 : 180)
+        : rawAngle;
+    marker.setLatLng(map.layerPointToLatLng(
+        L.point((startPoint.x + endPoint.x) / 2, (startPoint.y + endPoint.y) / 2)
+    ));
+    marker.setIcon(interceptLineAnnotationIcon(bearing, suffix, angle, flipped));
+}
+
+function updateInterceptAnnotations(intercept) {
+    const arrowEnd = destinationPoint(
+        intercept.apPoint.latlng,
+        intercept.bearing,
+        intercept.arrowLengthNM
+    );
+    if (intercept.interceptNM >= 0) {
+        updateInterceptAnnotation(
+            intercept.arrowAnnotation,
+            intercept.apPoint.latlng,
+            arrowEnd,
+            intercept.bearing,
+            intercept.interceptNM.toFixed(1) + " nm TOWARDS"
+        );
+    } else if (intercept.awayLayer) {
+        const awayEnd = destinationPoint(
+            intercept.apPoint.latlng,
+            (intercept.bearing + 180) % 360,
+            intercept.awayLengthNM
+        );
+        updateInterceptAnnotation(
+            intercept.arrowAnnotation,
+            intercept.apPoint.latlng,
+            awayEnd,
+            intercept.bearing,
+            Math.abs(intercept.interceptNM).toFixed(1) + " nm AWAY"
+        );
+    }
+}
+
+function updateInterceptLopAnnotation(intercept, lopStart, lopEnd) {
+    const startPoint = map.latLngToLayerPoint(lopStart);
+    const endPoint = map.latLngToLayerPoint(lopEnd);
+    const startScore = startPoint.x + startPoint.y;
+    const endScore = endPoint.x + endPoint.y;
+    const labelEnd = startScore <= endScore ? startPoint : endPoint;
+    const midpoint = L.point(
+        (startPoint.x + endPoint.x) / 2,
+        (startPoint.y + endPoint.y) / 2
+    );
+    const dx = labelEnd.x - midpoint.x;
+    const dy = labelEnd.y - midpoint.y;
+    const rawAngle = Math.atan2(dy, dx) * 180 / Math.PI;
+    const flipped = rawAngle > 90 || rawAngle < -90;
+    const angle = flipped
+        ? rawAngle + (rawAngle > 90 ? -180 : 180)
+        : rawAngle;
+    intercept.lopAnnotation.setLatLng(map.layerPointToLatLng(L.point(
+        (labelEnd.x + midpoint.x) / 2,
+        (labelEnd.y + midpoint.y) / 2
+    )));
+    intercept.lopAnnotation.setIcon(L.divIcon({
+        className: "intercept-lop-label-icon",
+        html:
+            '<span class="line-annotation-content' +
+            (flipped ? " line-annotation-flipped" : "") +
+            '" style="transform: translate(-50%, -50%) rotate(' +
+            angle.toFixed(2) +
+            'deg)"><span class="intercept-lop-label">LOP: ' +
+            escapeHtml(intercept.starName) +
+            "</span></span>",
+        iconSize: [0, 0],
+        iconAnchor: [0, 0]
+    }));
+}
+
+function renderIntercept(intercept) {
+    ensureInterceptAwayLayer(intercept);
+    const apPosition = intercept.apPoint.latlng;
+    const arrowEnd = destinationPoint(
+        apPosition,
+        intercept.bearing,
+        intercept.arrowLengthNM
+    );
+    intercept.arrowLayer.setLatLngs([apPosition, arrowEnd]);
+    intercept.arrowHandle.setLatLng(arrowEnd);
+    intercept.starMarker.setLatLng(arrowEnd);
+    intercept.arrowheadMarker.setLatLng(destinationPoint(
+        apPosition,
+        intercept.bearing,
+        Math.max(0.05, intercept.arrowLengthNM - 0.35)
+    ));
+    intercept.arrowheadMarker.setIcon(L.divIcon({
+        className: "intercept-arrowhead-icon",
+        html:
+            '<span class="intercept-arrowhead" style="transform: rotate(' +
+            intercept.bearing +
+            'deg)">▲</span>',
+        iconSize: [12, 12],
+        iconAnchor: [6, 6]
+    }));
+
+    if (intercept.awayLayer) {
+        const awayEnd = destinationPoint(
+            apPosition,
+            (intercept.bearing + 180) % 360,
+            intercept.awayLengthNM
+        );
+        intercept.awayLayer.setLatLngs([apPosition, awayEnd]);
+    }
+
+    const lopCenter = destinationPoint(
+        apPosition,
+        (intercept.bearing + (intercept.interceptNM < 0 ? 180 : 0)) % 360,
+        Math.abs(intercept.interceptNM)
+    );
+    const lopStart = destinationPoint(
+        lopCenter,
+        (intercept.bearing + 90) % 360,
+        intercept.lopPositiveNM
+    );
+    const lopEnd = destinationPoint(
+        lopCenter,
+        (intercept.bearing + 270) % 360,
+        intercept.lopNegativeNM
+    );
+    intercept.lopLayer.setLatLngs([lopStart, lopEnd]);
+    intercept.lopHandles[0].setLatLng(lopStart);
+    intercept.lopHandles[1].setLatLng(lopEnd);
+    updateInterceptLopAnnotation(intercept, lopStart, lopEnd);
+    updateInterceptAnnotations(intercept);
+    intercept.starMarker.setIcon(L.divIcon({
+        className: "intercept-star-icon",
+        html:
+            '<span class="intercept-star">★<span class="intercept-star-label">' +
+            escapeHtml(intercept.starName) +
+            "</span></span>",
+        iconSize: [40, 34],
+        iconAnchor: [20, 12]
+    }));
+}
+
+function makeInterceptMarker(latlng, className, html, iconSize, iconAnchor, options = {}) {
+    return L.marker(latlng, {
+        icon: L.divIcon({
+            className,
+            html,
+            iconSize,
+            iconAnchor
+        }),
+        interactive: false,
+        keyboard: false,
+        bubblingMouseEvents: false,
+        ...options
+    }).addTo(map);
+}
+
+function ensureInterceptAwayLayer(intercept) {
+    if (intercept.interceptNM < 0 && !intercept.awayLayer) {
+        intercept.awayLayer = L.polyline([], {
+            color: "#666",
+            weight: 3,
+            dashArray: "6, 6",
+            bubblingMouseEvents: false
+        }).addTo(map);
+        intercept.awayLayer.on("click", () => selectObject(intercept));
+        objects.push(intercept.awayLayer);
+    } else if (intercept.interceptNM >= 0 && intercept.awayLayer) {
+        map.removeLayer(intercept.awayLayer);
+        objects = objects.filter(object => object !== intercept.awayLayer);
+        intercept.awayLayer = null;
+    }
+}
+
+function createIntercept(apPoint, starName, bearing, interceptNM, options = {}) {
+    const intercept = {
+        id: options.id || "line-" + nextLineId++,
+        apPoint,
+        starName,
+        bearing,
+        interceptNM,
+        arrowLengthNM: Number.isFinite(options.arrowLengthNM)
+            ? options.arrowLengthNM
+            :
+            (interceptNM > 0 ? interceptNM + 1 : 1.5),
+        awayLengthNM: Number.isFinite(options.awayLengthNM)
+            ? options.awayLengthNM
+            : Math.abs(interceptNM) + 1,
+        lopPositiveNM: Number.isFinite(options.lopPositiveNM)
+            ? options.lopPositiveNM
+            : 1,
+        lopNegativeNM: Number.isFinite(options.lopNegativeNM)
+            ? options.lopNegativeNM
+            : 1,
+        arrowLayer: null,
+        awayLayer: null,
+        lopLayer: null,
+        arrowHandle: null,
+        lopHandles: [],
+        starMarker: null,
+        arrowheadMarker: null,
+        arrowAnnotation: null,
+        lopAnnotation: null
+    };
+    const apPosition = apPoint.latlng;
+    const arrowEnd = destinationPoint(
+        apPosition,
+        bearing,
+        intercept.arrowLengthNM
+    );
+    const arrowStyle = {
+        color: "#666",
+        weight: 3,
+        dashArray: "6, 6",
+        bubblingMouseEvents: false
+    };
+    const lopStyle = {
+        color: "#666",
+        weight: 3,
+        bubblingMouseEvents: false
+    };
+    intercept.arrowLayer = L.polyline(
+        [apPosition, arrowEnd],
+        arrowStyle
+    ).addTo(map);
+    if (interceptNM < 0) {
+        intercept.awayLayer = L.polyline(
+            [
+                apPosition,
+                destinationPoint(apPosition, (bearing + 180) % 360, intercept.awayLengthNM)
+            ],
+            arrowStyle
+        ).addTo(map);
+    }
+    intercept.lopLayer = L.polyline([], lopStyle).addTo(map);
+    intercept.arrowHandle = L.marker(arrowEnd, {
+        draggable: true,
+        zIndexOffset: 1000,
+        bubblingMouseEvents: false,
+        title: "Drag to change intercept arrow length",
+        icon: L.divIcon({
+            className: "intercept-arrow-handle",
+            html: "",
+            iconSize: [10, 10],
+            iconAnchor: [5, 5]
+        })
+    }).addTo(map);
+    intercept.lopHandles = [0, 1].map(index =>
+        L.marker(apPosition, {
+            draggable: true,
+            zIndexOffset: 1000,
+            bubblingMouseEvents: false,
+            title: "Drag to change LOP length on this side",
+            icon: L.divIcon({
+                className: "intercept-lop-handle",
+                html: "",
+                iconSize: [8, 8],
+                iconAnchor: [4, 4]
+            })
+        }).addTo(map)
+    );
+    intercept.starMarker = makeInterceptMarker(
+        arrowEnd,
+        "intercept-star-icon",
+        '<span class="intercept-star">★<span class="intercept-star-label">' +
+            escapeHtml(starName) +
+            "</span></span>",
+        [40, 34],
+        [20, 12],
+        { zIndexOffset: 900 }
+    );
+    intercept.arrowheadMarker = makeInterceptMarker(
+        arrowEnd,
+        "intercept-arrowhead-icon",
+        "",
+        [12, 12],
+        [6, 6],
+        { zIndexOffset: 800 }
+    );
+    intercept.arrowAnnotation = makeInterceptMarker(
+        arrowEnd,
+        "intercept-line-annotation-icon",
+        "",
+        [0, 0],
+        [0, 0]
+    );
+    intercept.lopAnnotation = makeInterceptMarker(
+        apPosition,
+        "intercept-lop-label-icon",
+        "",
+        [0, 0],
+        [0, 0]
+    );
+
+    const selectIntercept = () => selectObject(intercept);
+    [intercept.arrowLayer, intercept.awayLayer, intercept.lopLayer]
+        .filter(Boolean)
+        .forEach(layer => layer.on("click", selectIntercept));
+    [intercept.arrowHandle, ...intercept.lopHandles]
+        .forEach(handle => handle.on("click", selectIntercept));
+    intercept.arrowHandle.on("drag", () => {
+        intercept.arrowLengthNM = Math.max(
+            distanceNMBetween(
+                intercept.apPoint.latlng,
+                intercept.arrowHandle.getLatLng()
+            ),
+            0.1
+        );
+        renderIntercept(intercept);
+    });
+    intercept.arrowHandle.on("dragend", () => {
+        if (selectedObject === intercept) {
+            showInterceptInfo(intercept);
+        }
+        persistNavigationState();
+    });
+    intercept.lopHandles.forEach((handle, index) => {
+        handle.on("drag", () => {
+            const center = destinationPoint(
+                intercept.apPoint.latlng,
+                (intercept.bearing + (intercept.interceptNM < 0 ? 180 : 0)) % 360,
+                Math.abs(intercept.interceptNM)
+            );
+            intercept[index === 0 ? "lopPositiveNM" : "lopNegativeNM"] =
+                Math.max(distanceNMBetween(center, handle.getLatLng()), 0.05);
+            renderIntercept(intercept);
+        });
+        handle.on("dragend", () => {
+            if (selectedObject === intercept) {
+                showInterceptInfo(intercept);
+            }
+            persistNavigationState();
+        });
+    });
+
+    intercepts.push(intercept);
+    objects.push(...[
+        intercept.arrowLayer,
+        intercept.awayLayer,
+        intercept.lopLayer,
+        intercept.arrowHandle,
+        ...intercept.lopHandles,
+        intercept.starMarker,
+        intercept.arrowheadMarker,
+        intercept.arrowAnnotation,
+        intercept.lopAnnotation
+    ].filter(Boolean));
+    renderIntercept(intercept);
+    return intercept;
+}
+
 function createGreatCircleRoute(startPoint, endPoint, id) {
     const route = {
         id: id || "line-" + nextLineId++,
@@ -1038,6 +1470,17 @@ function serializeNavigationState() {
             fixPointId: line.fixPoint.id,
             bearing: line.bearing,
             distanceNM: line.distanceNM
+        })),
+        intercepts: intercepts.map(intercept => ({
+            id: intercept.id,
+            apPointId: intercept.apPoint.id,
+            starName: intercept.starName,
+            bearing: intercept.bearing,
+            interceptNM: intercept.interceptNM,
+            arrowLengthNM: intercept.arrowLengthNM,
+            awayLengthNM: intercept.awayLengthNM,
+            lopPositiveNM: intercept.lopPositiveNM,
+            lopNegativeNM: intercept.lopNegativeNM
         })),
         greatCircleRoutes: greatCircleRoutes.map(route => ({
             id: route.id,
@@ -1092,6 +1535,8 @@ function validateStoredNavigationState(state) {
         !Array.isArray(state.lines) ||
         (state.bearingLines !== undefined &&
             !Array.isArray(state.bearingLines)) ||
+        (state.intercepts !== undefined &&
+            !Array.isArray(state.intercepts)) ||
         (state.greatCircleRoutes !== undefined &&
             !Array.isArray(state.greatCircleRoutes)) ||
         !Number.isInteger(state.nextFixNumber) ||
@@ -1222,6 +1667,34 @@ function validateStoredNavigationState(state) {
         highestLineId = Math.max(highestLineId, Number(lineIdMatch[1]));
         lineIds.add(line.id);
     });
+    (state.intercepts || []).forEach(intercept => {
+        const interceptIdMatch = intercept && /^line-(\d+)$/.exec(intercept.id);
+        const apPoint = intercept && pointsById.get(intercept.apPointId);
+        if (
+            !interceptIdMatch ||
+            lineIds.has(intercept.id) ||
+            !apPoint ||
+            apPoint.type !== "FIX" ||
+            typeof intercept.starName !== "string" ||
+            !intercept.starName.trim() ||
+            !Number.isFinite(intercept.bearing) ||
+            intercept.bearing < 0 ||
+            intercept.bearing >= 360 ||
+            !Number.isFinite(intercept.interceptNM) ||
+            !Number.isFinite(intercept.arrowLengthNM) ||
+            intercept.arrowLengthNM <= 0 ||
+            !Number.isFinite(intercept.awayLengthNM) ||
+            intercept.awayLengthNM <= 0 ||
+            !Number.isFinite(intercept.lopPositiveNM) ||
+            intercept.lopPositiveNM <= 0 ||
+            !Number.isFinite(intercept.lopNegativeNM) ||
+            intercept.lopNegativeNM <= 0
+        ) {
+            invalid("INT record");
+        }
+        highestLineId = Math.max(highestLineId, Number(interceptIdMatch[1]));
+        lineIds.add(intercept.id);
+    });
     if (state.nextLineId <= highestLineId) {
         invalid("line counter");
     }
@@ -1302,6 +1775,21 @@ function restoreNavigationState() {
                 { id: line.id }
             );
         });
+        (state.intercepts || []).forEach(intercept => {
+            createIntercept(
+                restoredPoints.get(intercept.apPointId),
+                intercept.starName,
+                intercept.bearing,
+                intercept.interceptNM,
+                {
+                    id: intercept.id,
+                    arrowLengthNM: intercept.arrowLengthNM,
+                    awayLengthNM: intercept.awayLengthNM,
+                    lopPositiveNM: intercept.lopPositiveNM,
+                    lopNegativeNM: intercept.lopNegativeNM
+                }
+            );
+        });
         updateSelectionStyle();
     } catch (error) {
         showStorageError("restore", error);
@@ -1361,6 +1849,27 @@ function closeBearingPopup() {
     activateButton(null);
 }
 
+function openInterceptPopup() {
+    if (!points.includes(selectedObject) || selectedObject.type !== "FIX") {
+        return;
+    }
+    mode = null;
+    activateButton("intTool");
+    intFixLabel.textContent = selectedObject.label;
+    intName.value = "";
+    intBearing.value = "";
+    intDistance.value = "";
+    intError.textContent = "";
+    intPopup.hidden = false;
+    intName.focus();
+}
+
+function closeInterceptPopup() {
+    intPopup.hidden = true;
+    intError.textContent = "";
+    activateButton(null);
+}
+
 function applyPointEdits(event) {
     event.preventDefault();
     if (!points.includes(selectedObject)) {
@@ -1388,10 +1897,49 @@ function applyPointEdits(event) {
         bearingLines
             .filter(line => line.fixPoint === selectedObject)
             .forEach(updateBearingLine);
+        intercepts
+            .filter(intercept => intercept.apPoint === selectedObject)
+            .forEach(intercept => renderIntercept(intercept));
         updateGreatCircleRoutesForPoint(selectedObject);
     }
     selectedObject.marker.setIcon(pointIcon(selectedObject, true));
     showPointInfo(selectedObject);
+    persistNavigationState();
+}
+
+function applyInterceptEdits(event) {
+    event.preventDefault();
+    if (!intercepts.includes(selectedObject)) {
+        return;
+    }
+    const starName = interceptName.value.trim();
+    const bearing = Number(interceptBearing.value);
+    const distance = Number(interceptDistance.value);
+    const distanceChanged = distance !== selectedObject.interceptNM;
+    if (
+        !starName ||
+        interceptBearing.value.trim() === "" ||
+        interceptDistance.value.trim() === "" ||
+        !Number.isFinite(bearing) ||
+        bearing < 0 ||
+        bearing > 360 ||
+        !Number.isFinite(distance)
+    ) {
+        infoMessage.textContent =
+            "Enter a star name, bearing from 0° to 360°, and a numeric intercept distance.";
+        return;
+    }
+    selectedObject.starName = starName;
+    selectedObject.bearing = bearing % 360;
+    selectedObject.interceptNM = distance;
+    if (distanceChanged) {
+        selectedObject.arrowLengthNM =
+            distance > 0 ? distance + 1 : 1.5;
+        selectedObject.awayLengthNM = Math.abs(distance) + 1;
+    }
+    renderIntercept(selectedObject);
+    updateSelectionStyle();
+    showInterceptInfo(selectedObject);
     persistNavigationState();
 }
 
@@ -1439,6 +1987,20 @@ function collectDescendantLines(point, result) {
         });
 }
 
+function interceptLayers(intercept) {
+    return [
+        intercept.arrowLayer,
+        intercept.awayLayer,
+        intercept.lopLayer,
+        intercept.arrowHandle,
+        ...intercept.lopHandles,
+        intercept.starMarker,
+        intercept.arrowheadMarker,
+        intercept.arrowAnnotation,
+        intercept.lopAnnotation
+    ].filter(Boolean);
+}
+
 function deleteSelectedObject() {
     if (!selectedObject) {
         return;
@@ -1449,12 +2011,29 @@ function deleteSelectedObject() {
     const selectedBearingLine = bearingLines.includes(selectedObject)
         ? selectedObject
         : null;
+    const selectedIntercept = intercepts.includes(selectedObject)
+        ? selectedObject
+        : null;
     const selectedGreatCircleRoute = greatCircleRoutes.includes(selectedObject)
         ? selectedObject
         : null;
     const selectedPoint = points.includes(selectedObject)
         ? selectedObject
         : null;
+    if (selectedIntercept) {
+        if (!window.confirm("Delete all INT lines and the star for " + selectedIntercept.starName + "?")) {
+            return;
+        }
+        const removedLayers = new Set(interceptLayers(selectedIntercept));
+        removedLayers.forEach(layer => map.removeLayer(layer));
+        objects = objects.filter(object => !removedLayers.has(object));
+        intercepts = intercepts.filter(intercept => intercept !== selectedIntercept);
+        selectedObject = null;
+        updateSelectionStyle();
+        setInfoMessage("INT lines deleted");
+        persistNavigationState();
+        return;
+    }
     if (selectedBearingLine) {
         if (!window.confirm("Delete the selected BRG TO line?")) {
             return;
@@ -1514,12 +2093,26 @@ function deleteSelectedObject() {
     const affectedBearingLines = new Set(
         bearingLines.filter(line => affectedPoints.has(line.fixPoint))
     );
+    const affectedIntercepts = new Set(
+        intercepts.filter(intercept => affectedPoints.has(intercept.apPoint))
+    );
 
     const cascades = affectedPoints.size > 1 || affectedLines.size > 1;
     let message;
-    if (selectedPoint && selectedPoint.type === "FIX" && affectedBearingLines.size) {
-        message = "Delete the selected FIX and its " + affectedBearingLines.size +
-            " attached BRG TO line(s)";
+    if (
+        selectedPoint &&
+        selectedPoint.type === "FIX" &&
+        (affectedBearingLines.size || affectedIntercepts.size)
+    ) {
+        message = "Delete the selected FIX";
+        if (affectedBearingLines.size) {
+            message += " and its " + affectedBearingLines.size +
+                " attached BRG TO line(s)";
+        }
+        if (affectedIntercepts.size) {
+            message += (affectedBearingLines.size ? ", plus " : " and its ") +
+                affectedIntercepts.size + " attached INT sight(s)";
+        }
         if (cascades) {
             message += ", plus " + (affectedPoints.size - 1) +
                 " dependent DR point(s) and their lines";
@@ -1547,11 +2140,17 @@ function deleteSelectedObject() {
         map.removeLayer(line.annotation);
         map.removeLayer(line.handle);
     });
+    affectedIntercepts.forEach(intercept => {
+        interceptLayers(intercept).forEach(layer => map.removeLayer(layer));
+    });
     affectedPoints.forEach(point => map.removeLayer(point.marker));
     const removedLayers = new Set([
         ...Array.from(affectedLines, line => [line.layer, line.annotation]).flat(),
         ...Array.from(affectedBearingLines, line =>
             [line.layer, line.annotation, line.handle]
+        ).flat(),
+        ...Array.from(affectedIntercepts, intercept =>
+            interceptLayers(intercept)
         ).flat(),
         ...Array.from(affectedGreatCircleRoutes, route => route.layer),
         ...Array.from(affectedPoints, point => point.marker)
@@ -1559,14 +2158,15 @@ function deleteSelectedObject() {
     objects = objects.filter(object => !removedLayers.has(object));
     navigationLines = navigationLines.filter(line => !affectedLines.has(line));
     bearingLines = bearingLines.filter(line => !affectedBearingLines.has(line));
+    intercepts = intercepts.filter(intercept => !affectedIntercepts.has(intercept));
     greatCircleRoutes = greatCircleRoutes.filter(
         route => !affectedGreatCircleRoutes.has(route)
     );
     points = points.filter(point => !affectedPoints.has(point));
     selectedObject = null;
     updateSelectionStyle();
-    setInfoMessage(affectedBearingLines.size
-        ? "FIX and attached BRG TO lines deleted"
+    setInfoMessage(affectedBearingLines.size || affectedIntercepts.size
+        ? "FIX and attached navigation lines deleted"
         : "Object and dependent DRs deleted");
     persistNavigationState();
 }
@@ -1620,10 +2220,13 @@ gcrButton.onclick = () => {
     );
 };
 brgToButton.onclick = openBearingPopup;
+interceptButton.onclick = openInterceptPopup;
 document.getElementById("drCancel").onclick = closeDrPopup;
 document.getElementById("brgToCancel").onclick = closeBearingPopup;
+document.getElementById("intCancel").onclick = closeInterceptPopup;
 drPopup.addEventListener("click", event => event.stopPropagation());
 brgToPopup.addEventListener("click", event => event.stopPropagation());
+intPopup.addEventListener("click", event => event.stopPropagation());
 
 drForm.addEventListener("submit", event => {
     event.preventDefault();
@@ -1668,8 +2271,41 @@ brgToForm.addEventListener("submit", event => {
     persistNavigationState();
 });
 
+intForm.addEventListener("submit", event => {
+    event.preventDefault();
+    const starName = intName.value.trim();
+    const bearing = Number(intBearing.value);
+    const distance = Number(intDistance.value);
+    if (
+        !starName ||
+        intBearing.value.trim() === "" ||
+        intDistance.value.trim() === "" ||
+        !Number.isFinite(bearing) ||
+        bearing < 0 ||
+        bearing > 360 ||
+        !Number.isFinite(distance) ||
+        !points.includes(selectedObject) ||
+        selectedObject.type !== "FIX"
+    ) {
+        intError.textContent =
+            "Enter a star name, bearing from 0° to 360°, and a numeric intercept distance.";
+        return;
+    }
+    const apPoint = selectedObject;
+    closeInterceptPopup();
+    const intercept = createIntercept(
+        apPoint,
+        starName,
+        bearing % 360,
+        distance
+    );
+    selectObject(intercept);
+    persistNavigationState();
+});
+
 pointInfo.addEventListener("submit", applyPointEdits);
 lineInfo.addEventListener("submit", applyLineEdits);
+interceptInfo.addEventListener("submit", applyInterceptEdits);
 
 document.getElementById("clearTool").onclick = () => {
     objects.forEach(object => map.removeLayer(object));
@@ -1677,12 +2313,14 @@ document.getElementById("clearTool").onclick = () => {
     points = [];
     navigationLines = [];
     bearingLines = [];
+    intercepts = [];
     greatCircleRoutes = [];
     selectedObject = null;
     mode = null;
     gcrStartPoint = null;
     drPopup.hidden = true;
     brgToPopup.hidden = true;
+    intPopup.hidden = true;
     nextFixNumber = 1;
     nextDrNumber = 1;
     nextPointId = 1;
