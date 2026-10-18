@@ -19,8 +19,8 @@
 
 ## Navigation tools
 - Keep navigation data separate from Leaflet layers so points can be shared as the
-  start of multiple directed lines. The toolbar has FIX, DR, and GCR tools; do not
-  reintroduce the retired LOS tool.
+  start of multiple directed lines. The toolbar has FIX, DR, GCR, BRG TO, and INT
+  tools; do not reintroduce the retired LOS tool.
 - FIX stays active for map placement and labels new fixes `FIX 1`, `FIX 2`, etc.
   FIX positions are authoritative and can be edited in the lower-left info panel
   or moved by dragging. Render a FIX as a small circle with a center dot.
@@ -35,6 +35,21 @@
   GCR routes in dark blue. Recalculate the route when either endpoint FIX moves,
   without moving the other endpoint. Persist route endpoint references and
   restore the routes alongside their FIXes.
+- Enable BRG TO only when a FIX is selected. It asks for a true bearing and creates
+  a dashed dark-gray line extending 5 nm from an independently draggable endpoint
+  toward the FIX. The endpoint may change the line length, but stays constrained to
+  the entered bearing. BRG TO lines have editable bearing/distance and labels,
+  persist with their FIX reference, and are deleted with that FIX; deleting a
+  BRG TO line never deletes its FIX.
+- Enable INT only when a FIX is selected. It asks for a star name, zenith bearing,
+  and signed intercept distance; positive is TOWARDS and negative is AWAY. Plot a
+  dashed gray arrow from the AP FIX to a non-selectable star marker, an AWAY line
+  in the opposite direction for negative intercepts, and a solid perpendicular
+  LOP through the signed intercept position. The arrow endpoint and both LOP
+  endpoints are draggable length handles constrained to their respective
+  bearings. Selecting any INT line opens editable sight data; deleting an INT
+  line deletes the entire sight but not its AP, and deleting its AP deletes all
+  attached INT geometry. Persist and validate INT data with the navigation graph.
 - Keep navigation marker roots absolutely positioned as required by Leaflet; use
   pseudo-elements for symbol artwork without overriding the marker's positioning,
   so the icon anchor, center dot, and line endpoint remain coincident.
@@ -55,8 +70,12 @@
   has exactly one defining inbound line.
 - Selecting a FIX or DR shows its label and coordinates in the lower-left info
   panel; FIX coordinates and labels are editable, while DR coordinates are
-  read-only. Display coordinates as `N dd° mm.mmm' - E ddd° mm.mmm'` (using the
-  appropriate S/W hemispheres) and accept this same format when editing a FIX.
+  read-only. Display info-panel coordinates as `N dd° mm.mm' - E ddd° mm.mm'`
+  (using the appropriate S/W hemispheres), rounding minutes to two decimal
+  places. When editing a FIX, accept variable minute precision, omitted minutes
+  as zero, optional ` - ` between latitude and longitude, east as E or O, and
+  degrees without leading zeros; keep rendered map labels in their existing
+  one-decimal format.
   Selecting a line shows editable bearing and distance. Confirm
   deletion and keep references valid; deleting a point/line with dependent DRs
   must clearly confirm the dependent cascade before removing those objects.
@@ -72,15 +91,17 @@
   initial map view if the saved viewport is invalid.
 - Keep all visible UI text in English. Test FIX placement/editing/dragging, DR
   creation from FIX and DR, bearing/distance calculations, downstream propagation,
-  GCR creation and recalculation from either endpoint, validation,
+  GCR   creation and recalculation from either endpoint, BRG TO and INT creation,
+  geometry, editing, dragging, deletion, persistence, validation,
   deletion/cancellation behavior, persistence across reloads, and storage failure
   reporting.
 
 ## Map overlay behavior
-- Grid labels use hemisphere and padded degrees, with rounded whole minutes
-  only when non-zero (for example, `N 30°`, `N 30° 12'`). Center labels over
-  grid lines at the visible map's outer borders, use a translucent background,
-  and redraw the graticule after map movement, zoom, or resize.
+- Grid labels use hemisphere and padded degrees, showing minutes only when
+  non-zero and adding fractional-minute precision as grid spacing requires
+  (for example, `N 30°`, `N 30° 12'`, `N 30° 12.3'`). Center labels over grid
+  lines at the visible map's outer borders, use a translucent background, and
+  redraw the graticule after map movement, zoom, or resize.
 
 ## Workflows and conventions
 - Run `python navitools.py` from the project root: `index.html` lookup and static

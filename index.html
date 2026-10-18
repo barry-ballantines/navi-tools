@@ -52,6 +52,8 @@
     <button id="fixTool">FIX</button>
     <button id="drTool" disabled>DR</button>
     <button id="gcrTool" disabled>GCR</button>
+    <button id="brgToTool" disabled>BRG TO</button>
+    <button id="intTool" disabled>INT</button>
     <button id="clearTool">Clear</button>
 </div>
 
@@ -60,6 +62,8 @@
         Select FIX to place a fix<br>
         Select a point, then DR to create a dead-reckoning leg<br>
         Select a FIX, then GCR to create a Great Circle Route<br>
+        Select a FIX, then BRG TO to enter a true bearing<br>
+        Select a FIX, then INT to plot a celestial intercept<br>
         Click an object and press Delete to remove it
     </div>
     <form id="pointInfo" hidden>
@@ -70,8 +74,7 @@
                 id="pointPosition"
                 type="text"
                 aria-label="Latitude and longitude"
-                placeholder="N 54° 10.123' - E 010° 12.456'"
-                pattern="[NS] [0-9]{2}° [0-9]{2}\.[0-9]{3}' - [EW] [0-9]{3}° [0-9]{2}\.[0-9]{3}'"
+                placeholder="N 54° 10.12' - E 10° 12.34'"
                 required
             >
         </label>
@@ -84,6 +87,17 @@
         </label>
         <label>Distance (nm)
             <input id="lineDistance" type="number" min="0" step="any" required>
+        </label>
+        <button type="submit">Apply</button>
+    </form>
+    <form id="interceptInfo" hidden>
+        <strong>INT sight</strong>
+        <label>Star name <input id="interceptName" type="text" required></label>
+        <label>Zenith bearing (Z_n, °)
+            <input id="interceptBearing" type="number" min="0" max="360" step="any" required>
+        </label>
+        <label>Intercept distance (nm)
+            <input id="interceptDistance" type="number" step="any" required>
         </label>
         <button type="submit">Apply</button>
     </form>
@@ -102,6 +116,40 @@
         <div class="popup-actions">
             <button type="submit">OK</button>
             <button id="drCancel" type="button">Cancel</button>
+        </div>
+    </form>
+</div>
+
+<div id="brgToPopup" class="tool-popup" hidden>
+    <form id="brgToForm">
+        <strong>Create BRG TO line to <span id="brgToFixLabel"></span></strong>
+        <label>True bearing (0°–360°)
+            <input id="brgToBearing" type="number" min="0" max="360" step="any" required>
+        </label>
+        <div id="brgToError" role="alert"></div>
+        <div class="popup-actions">
+            <button type="submit">OK</button>
+            <button id="brgToCancel" type="button">Cancel</button>
+        </div>
+    </form>
+</div>
+
+<div id="intPopup" class="tool-popup" hidden>
+    <form id="intForm">
+        <strong>Plot an intercept from <span id="intFixLabel"></span></strong>
+        <label>Star name
+            <input id="intName" type="text" required>
+        </label>
+        <label>Zenith bearing (Z_n, 0°–360°)
+            <input id="intBearing" type="number" min="0" max="360" step="any" required>
+        </label>
+        <label>Intercept distance (nm, + towards / − away)
+            <input id="intDistance" type="number" step="any" required>
+        </label>
+        <div id="intError" role="alert"></div>
+        <div class="popup-actions">
+            <button type="submit">OK</button>
+            <button id="intCancel" type="button">Cancel</button>
         </div>
     </form>
 </div>

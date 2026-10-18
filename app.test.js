@@ -4,6 +4,19 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 
+function distanceInNM(first, second) {
+    const radians = degrees => degrees * Math.PI / 180;
+    const latitudeDifference = radians(second.lat - first.lat);
+    const longitudeDifference = radians(second.lng - first.lng);
+    const latitude1 = radians(first.lat);
+    const latitude2 = radians(second.lat);
+    const haversine =
+        Math.sin(latitudeDifference / 2) ** 2 +
+        Math.cos(latitude1) * Math.cos(latitude2) *
+        Math.sin(longitudeDifference / 2) ** 2;
+    return 2 * 6371000 * Math.asin(Math.sqrt(haversine)) / 1852;
+}
+
 function createApp(options = {}) {
     const eventHandlers = {};
     const element = id => ({
@@ -28,10 +41,15 @@ function createApp(options = {}) {
     });
     const elements = Object.fromEntries(
         [
-            "info", "infoMessage", "fixTool", "drTool", "gcrTool", "clearTool",
+            "info", "infoMessage", "fixTool", "drTool", "gcrTool", "brgToTool", "intTool", "clearTool",
             "pointInfo", "pointType", "pointLabel", "pointPosition",
-            "lineInfo", "lineBearing", "lineDistance", "drPopup", "drForm",
+            "lineInfo", "lineTitle", "lineBearing", "lineDistance", "drPopup", "drForm",
+            "interceptInfo", "interceptName", "interceptBearing", "interceptDistance",
             "drStartLabel", "drBearing", "drDistance", "drError", "drCancel",
+            "brgToPopup", "brgToForm", "brgToFixLabel", "brgToBearing",
+            "brgToError", "brgToCancel",
+            "intPopup", "intForm", "intFixLabel", "intName", "intBearing",
+            "intDistance", "intError", "intCancel",
             "magCompassRose", "magCompassTextTop", "magCompassTextBottom"
         ]
             .map(id => [id, element(id)])
@@ -39,8 +57,13 @@ function createApp(options = {}) {
     elements.pointInfo.hidden = true;
     elements.lineInfo.hidden = true;
     elements.drPopup.hidden = true;
+    elements.brgToPopup.hidden = true;
+    elements.interceptInfo.hidden = true;
+    elements.intPopup.hidden = true;
     elements.drTool.disabled = true;
     elements.gcrTool.disabled = true;
+    elements.brgToTool.disabled = true;
+    elements.intTool.disabled = true;
     const layers = new Set();
     const markers = [];
     const lines = [];
@@ -200,6 +223,7 @@ function createApp(options = {}) {
 
         setIcon(icon) {
             this.icon = icon;
+            this.options.icon = icon;
             this.iconHistory.push(icon);
         }
 
@@ -339,7 +363,24 @@ function createApp(options = {}) {
         storageValues,
         get markers() {
             return markers.filter(marker =>
-                Object.hasOwn(marker.options, "draggable")
+                Object.hasOwn(marker.options, "draggable") &&
+                Object.hasOwn(marker.options, "alt")
+            );
+        },
+        get bearingHandles() {
+            return markers.filter(marker =>
+                marker.options.icon.className === "navigation-bearing-handle"
+            );
+        },
+        get interceptHandles() {
+            return markers.filter(marker =>
+                ["intercept-arrow-handle", "intercept-lop-handle"]
+                    .includes(marker.options.icon.className)
+            );
+        },
+        get interceptStars() {
+            return markers.filter(marker =>
+                marker.options.icon.className === "intercept-star-icon"
             );
         },
         get annotations() {
@@ -369,9 +410,9 @@ function createApp(options = {}) {
             handlers.zoomend.forEach(handler => handler());
         },
         viewport: () => ({ center: mapCenter, zoom: mapZoom }),
-        formatGridCoordinate: (value, isLatitude) =>
+        formatGridCoordinate: (value, isLatitude, precision) =>
             vm.runInNewContext(
-                `formatGridCoordinate(${value}, ${isLatitude})`,
+                `formatGridCoordinate(${value}, ${isLatitude}, ${precision})`,
                 sandboxContext
             ),
         click: (lat, lng) =>
@@ -481,6 +522,439 @@ test("DR is enabled for a selected point and creates a named DR leg", () => {
     assert.ok(Math.abs(app.lines[0].latlngs[1].lng - 1) < 0.001);
     assert.equal(app.elements.pointLabel.value, "DR 1");
     assert.equal(app.elements.drTool.disabled, false);
+});
+
+test("BRG TO creates a dashed 5 nm line ending at the selected FIX", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    const fix = app.markers[0];
+
+    assert.equal(app.elements.brgToTool.disabled, false);
+    app.select("brgToTool");
+    assert.equal(app.elements.brgToPopup.hidden, false);
+    assert.equal(app.elements.brgToFixLabel.textContent, "FIX 1");
+    app.elements.brgToBearing.value = "90";
+    app.submit("brgToForm");
+
+    const line = app.lines[0];
+    assert.equal(app.elements.brgToPopup.hidden, true);
+    assert.equal(line.options.color, "#555");
+    assert.equal(line.options.dashArray, "6, 6");
+    assert.ok(Math.abs(line.latlngs[0].lng + 5 / 60) < 0.001);
+    assert.equal(line.latlngs[1], fix.getLatLng());
+    assert.equal(app.bearingHandles.length, 1);
+    assert.equal(app.bearingHandles[0].options.icon.iconSize[0] < 22, true);
+    assert.equal(app.bearingHandles[0].options.zIndexOffset, 1000);
+    assert.equal(app.elements.lineTitle.textContent, "BRG TO line");
+    assert.equal(app.elements.lineBearing.value, 90);
+    assert.equal(app.elements.lineDistance.value, 5);
+    assert.match(app.annotations[0].icon.html, /line-annotation-bearing">090°/);
+    assert.match(app.annotations[0].icon.html, /line-annotation-distance">5\.0 nm/);
+});
+
+test("BRG TO handle changes length on its fixed bearing and line edits recalculate it", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    app.select("brgToTool");
+    app.elements.brgToBearing.value = "90";
+    app.submit("brgToForm");
+
+    const handle = app.bearingHandles[0];
+    const originalStart = app.lines[0].latlngs[0];
+    handle.dragTo({ lat: 0.05, lng: -0.1 });
+    handle.endDrag();
+    assert.ok(Math.abs(handle.getLatLng().lat) < 1e-10);
+    assert.ok(handle.getLatLng().lng < originalStart.lng);
+    assert.equal(app.lines[0].latlngs[0], handle.getLatLng());
+    assert.equal(app.elements.lineDistance.value > 5, true);
+    assert.equal(app.lines[0].latlngs[1], app.markers[0].getLatLng());
+
+    app.lines[0].fire("click");
+    app.elements.lineBearing.value = "180";
+    app.elements.lineDistance.value = "10";
+    app.submit("lineInfo");
+    assert.ok(app.lines[0].latlngs[0].lat > 0);
+    assert.equal(app.lines[0].latlngs[1], app.markers[0].getLatLng());
+    assert.match(app.annotations[0].icon.html, /line-annotation-bearing">180°/);
+    assert.match(app.annotations[0].icon.html, /line-annotation-distance">10\.0 nm/);
+});
+
+test("moving a FIX moves attached BRG TO geometry without changing its bearing or length", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    app.select("brgToTool");
+    app.elements.brgToBearing.value = "90";
+    app.submit("brgToForm");
+    const line = app.lines[0];
+    const handle = app.bearingHandles[0];
+    const originalDistance = app.elements.lineDistance.value;
+
+    app.markers[0].dragTo({ lat: 5, lng: 10 });
+    assert.equal(line.latlngs[1], app.markers[0].getLatLng());
+    assert.equal(handle.getLatLng(), line.latlngs[0]);
+    assert.ok(Math.abs(handle.getLatLng().lat - 5) < 0.001);
+    assert.equal(app.elements.lineDistance.value, originalDistance);
+    app.endDrag(0);
+    assert.match(app.annotations[0].icon.html, /line-annotation-bearing">090°/);
+});
+
+test("BRG TO persists, deletes independently, and is removed with its FIX", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(1, 2);
+    app.select("brgToTool");
+    app.elements.brgToBearing.value = "45";
+    app.submit("brgToForm");
+
+    const savedWithBearingLine = new Map(app.storageValues);
+    const restored = createApp({ storageValues: app.storageValues });
+    assert.equal(restored.markers.length, 1);
+    assert.equal(restored.lines.length, 1);
+    assert.equal(restored.bearingHandles.length, 1);
+    assert.equal(restored.lines[0].options.dashArray, "6, 6");
+    restored.lines[0].fire("click");
+    restored.deleteKey();
+    assert.equal(restored.markers.length, 1);
+    assert.equal(restored.lines.length, 1);
+    const afterLineDelete = createApp({ storageValues: restored.storageValues });
+    assert.equal(afterLineDelete.markers.length, 1);
+    assert.equal(afterLineDelete.lines.length, 0);
+
+    const withBearingLine = createApp({ storageValues: savedWithBearingLine });
+    withBearingLine.markers[0].fire("click");
+    withBearingLine.deleteKey();
+    assert.match(withBearingLine.confirmations[0], /attached BRG TO line/);
+    const afterFixDelete = createApp({ storageValues: withBearingLine.storageValues });
+    assert.equal(afterFixDelete.markers.length, 0);
+    assert.equal(afterFixDelete.lines.length, 0);
+});
+
+test("BRG TO rejects invalid bearings", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    app.select("brgToTool");
+    app.elements.brgToBearing.value = "361";
+    app.submit("brgToForm");
+
+    assert.equal(app.elements.brgToPopup.hidden, false);
+    assert.match(app.elements.brgToError.textContent, /bearing/);
+    assert.equal(app.lines.length, 0);
+});
+
+test("INT plots a positive intercept, star, arrow label, and perpendicular LOP", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    assert.equal(app.elements.intTool.disabled, false);
+    app.select("intTool");
+    assert.equal(app.elements.intPopup.hidden, false);
+    assert.equal(app.elements.intFixLabel.textContent, "FIX 1");
+    app.elements.intName.value = "Sirius";
+    app.elements.intBearing.value = "25";
+    app.elements.intDistance.value = "12.5";
+    app.submit("intForm");
+
+    assert.equal(app.elements.intPopup.hidden, true);
+    assert.equal(app.elements.interceptInfo.hidden, false);
+    assert.equal(app.elements.interceptName.value, "Sirius");
+    assert.equal(app.elements.interceptBearing.value, 25);
+    assert.equal(app.elements.interceptDistance.value, 12.5);
+    assert.equal(app.lines.length, 2);
+    assert.equal(app.lines[0].options.color, "#666");
+    assert.equal(app.lines[0].options.dashArray, "6, 6");
+    assert.equal(app.lines[1].options.dashArray, undefined);
+    assert.equal(app.interceptStars.length, 1);
+    assert.match(app.interceptStars[0].options.icon.html, /★/);
+    assert.match(app.interceptStars[0].options.icon.html, /Sirius/);
+    assert.equal(app.interceptStars[0].options.interactive, false);
+    assert.equal(app.interceptStars[0].options.draggable, undefined);
+    const arrowAnnotation = app.annotations.find(marker =>
+        marker.options.icon.className === "intercept-line-annotation-icon"
+    );
+    assert.match(arrowAnnotation.options.icon.html, /025°/);
+    assert.match(arrowAnnotation.options.icon.html, /12\.5 nm TOWARDS/);
+    assert.equal(app.interceptHandles.length, 3);
+    const lop = app.lines[1];
+    assert.ok(Math.abs(distanceInNM(lop.latlngs[0], lop.latlngs[1]) - 2) < 0.001);
+    const lopDeltaX = lop.latlngs[1].lng - lop.latlngs[0].lng;
+    const lopDeltaY = lop.latlngs[1].lat - lop.latlngs[0].lat;
+    const bearingRadians = 25 * Math.PI / 180;
+    assert.ok(Math.abs(
+        lopDeltaX * Math.sin(bearingRadians) +
+        lopDeltaY * Math.cos(bearingRadians)
+    ) < 0.000001);
+    const lopLabels = app.annotations.filter(marker =>
+        marker.options.icon.className === "intercept-lop-label-icon"
+    );
+    assert.equal(lopLabels.length, 1);
+    const lopLabel = lopLabels[0];
+    assert.match(lopLabel.options.icon.html, /LOP: Sirius/);
+    assert.match(lopLabel.options.icon.html, /rotate\(/);
+    assert.match(lopLabel.options.icon.html, /line-annotation-flipped/);
+    const start = lop.latlngs[0];
+    const end = lop.latlngs[1];
+    const startScore = start.lng + (85 - start.lat);
+    const endScore = end.lng + (85 - end.lat);
+    const selectedEnd = startScore <= endScore ? start : end;
+    const otherEnd = selectedEnd === start ? end : start;
+    const expectedLabel = {
+        lat: (3 * selectedEnd.lat + otherEnd.lat) / 4,
+        lng: (3 * selectedEnd.lng + otherEnd.lng) / 4
+    };
+    assert.ok(Math.abs(lopLabel.latlng.lat - expectedLabel.lat) < 1e-8);
+    assert.ok(Math.abs(lopLabel.latlng.lng - expectedLabel.lng) < 1e-8);
+
+    const iconHistoryLength = lopLabel.iconHistory.length;
+    app.fireMapEvent("zoomend");
+    assert.equal(lopLabel.iconHistory.length, iconHistoryLength + 1);
+});
+
+test("INT AWAY adds an opposite dashed line, and any INT line opens editable sight data", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    app.select("intTool");
+    app.elements.intName.value = "Vega";
+    app.elements.intBearing.value = "25";
+    app.elements.intDistance.value = "-12.5";
+    app.submit("intForm");
+
+    assert.equal(app.lines.length, 3);
+    assert.equal(app.lines[0].options.dashArray, "6, 6");
+    assert.equal(app.lines[1].options.dashArray, "6, 6");
+    assert.equal(app.lines[2].options.dashArray, undefined);
+    assert.ok(app.lines[0].latlngs[1].lat > 0);
+    assert.ok(app.lines[1].latlngs[1].lat < 0);
+    const awayAnnotation = app.annotations.find(marker =>
+        marker.options.icon.className === "intercept-line-annotation-icon"
+    );
+    assert.match(awayAnnotation.options.icon.html, /025°/);
+    assert.match(awayAnnotation.options.icon.html, /12\.5 nm AWAY/);
+    assert.match(app.interceptStars[0].options.icon.html, /Vega/);
+
+    app.lines[2].fire("click");
+    assert.equal(app.elements.interceptInfo.hidden, false);
+    assert.equal(app.elements.interceptName.value, "Vega");
+    assert.equal(app.elements.interceptDistance.value, -12.5);
+    app.elements.interceptName.value = "Altair";
+    app.elements.interceptBearing.value = "90";
+    app.elements.interceptDistance.value = "8.25";
+    app.submit("interceptInfo");
+
+    assert.equal(app.lines.length, 3);
+    assert.equal(app.layers.has(app.lines[1]), false);
+    assert.match(app.interceptStars[0].options.icon.html, /Altair/);
+    assert.ok(app.lines[0].latlngs[1].lng > 0);
+    const towardsAnnotation = app.annotations.find(marker =>
+        marker.options.icon.className === "intercept-line-annotation-icon"
+    );
+    assert.match(towardsAnnotation.options.icon.html, /090°/);
+    assert.match(towardsAnnotation.options.icon.html, /8\.3 nm TOWARDS/);
+    assert.equal(app.elements.interceptBearing.value, 90);
+    assert.equal(app.elements.interceptDistance.value, 8.25);
+});
+
+test("INT arrow and LOP handles change only their own lengths", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    app.select("intTool");
+    app.elements.intName.value = "Rigel";
+    app.elements.intBearing.value = "0";
+    app.elements.intDistance.value = "10";
+    app.submit("intForm");
+    const originalArrowEnd = app.lines[0].latlngs[1];
+    const originalLopStart = app.lines[1].latlngs[0];
+
+    app.interceptHandles[0].dragTo({ lat: 0.3, lng: 0.1 });
+    app.interceptHandles[0].endDrag();
+    assert.ok(app.lines[0].latlngs[1].lat > originalArrowEnd.lat);
+    assert.ok(Math.abs(app.lines[0].latlngs[1].lng) < 1e-8);
+    assert.equal(app.lines[1].latlngs[0].lat, originalLopStart.lat);
+
+    app.interceptHandles[1].dragTo({ lat: 0.2, lng: 0.2 });
+    app.interceptHandles[1].endDrag();
+    assert.ok(app.lines[1].latlngs[0].lng > originalLopStart.lng);
+    assert.equal(app.lines[1].latlngs[1].lng < 0, true);
+    const originalLopEnd = app.lines[1].latlngs[1];
+    app.interceptHandles[2].dragTo({ lat: -0.2, lng: -0.1 });
+    app.interceptHandles[2].endDrag();
+    assert.ok(app.lines[1].latlngs[1].lng < originalLopEnd.lng);
+    assert.match(app.annotations.find(marker =>
+        marker.options.icon.className === "intercept-line-annotation-icon"
+    ).options.icon.html, /10\.0 nm TOWARDS/);
+});
+
+test("INT metadata, adjustable geometry, and counters persist across reloads", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(1, 2);
+    app.select("intTool");
+    app.elements.intName.value = "Polaris";
+    app.elements.intBearing.value = "360";
+    app.elements.intDistance.value = "-4.75";
+    app.submit("intForm");
+    app.interceptHandles[0].dragTo({ lat: 1.1, lng: 2 });
+    app.interceptHandles[0].endDrag();
+    app.interceptHandles[2].dragTo({ lat: 1.02, lng: 2.05 });
+    app.interceptHandles[2].endDrag();
+
+    const saved = JSON.parse(app.storageValues.get("navi-tools.navigation.v1"));
+    assert.equal(saved.intercepts[0].bearing, 0);
+    assert.equal(saved.intercepts[0].interceptNM, -4.75);
+    assert.notEqual(saved.intercepts[0].arrowLengthNM, 1.5);
+    assert.notEqual(saved.intercepts[0].lopNegativeNM, 1);
+
+    const restored = createApp({ storageValues: app.storageValues });
+    assert.equal(restored.markers.length, 1);
+    assert.equal(restored.lines.length, 3);
+    assert.match(restored.interceptStars[0].options.icon.html, /Polaris/);
+    assert.equal(restored.interceptHandles.length, 3);
+    const restoredAnnotation = restored.annotations.find(marker =>
+        marker.options.icon.className === "intercept-line-annotation-icon"
+    );
+    assert.match(restoredAnnotation.options.icon.html, /000°/);
+    assert.match(restoredAnnotation.options.icon.html, /4\.8 nm AWAY/);
+});
+
+test("editing the AP FIX position recalculates all attached INT geometry", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    app.select("intTool");
+    app.elements.intName.value = "Arcturus";
+    app.elements.intBearing.value = "90";
+    app.elements.intDistance.value = "5";
+    app.submit("intForm");
+    const originalArrowStart = app.lines[0].latlngs[0];
+
+    app.markers[0].fire("click");
+    app.elements.pointLabel.value = "AP";
+    app.elements.pointPosition.value = "N 10° 00.000' - E 020° 00.000'";
+    app.submit("pointInfo");
+
+    assert.equal(app.lines[0].latlngs[0], app.markers[0].getLatLng());
+    assert.ok(Math.abs(app.lines[0].latlngs[0].lat - originalArrowStart.lat) > 1);
+    assert.equal(app.interceptStars[0].latlng, app.interceptHandles[0].latlng);
+    assert.match(app.interceptStars[0].options.icon.html, /Arcturus/);
+});
+
+test("deleting any INT line removes its sight group but keeps the AP FIX", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    app.select("intTool");
+    app.elements.intName.value = "Deneb";
+    app.elements.intBearing.value = "180";
+    app.elements.intDistance.value = "-3";
+    app.submit("intForm");
+    const fix = app.markers[0];
+
+    app.lines[2].fire("click");
+    app.deleteKey();
+    assert.match(app.confirmations[0], /all INT lines and the star/);
+    assert.equal(app.lines.every(line => !app.layers.has(line)), true);
+    assert.equal(app.interceptHandles.every(handle => !app.layers.has(handle)), true);
+    assert.equal(app.layers.has(app.interceptStars[0]), false);
+    assert.equal(app.layers.has(fix), true);
+    assert.equal(app.text(), "INT lines deleted");
+    const restored = createApp({ storageValues: app.storageValues });
+    assert.equal(restored.markers.length, 1);
+    assert.equal(restored.lines.length, 0);
+});
+
+test("deleting the AP FIX confirms and removes its attached INT sight", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    app.select("intTool");
+    app.elements.intName.value = "Spica";
+    app.elements.intBearing.value = "270";
+    app.elements.intDistance.value = "2";
+    app.submit("intForm");
+    const fix = app.markers[0];
+    const star = app.interceptStars[0];
+
+    fix.fire("click");
+    app.deleteKey();
+    assert.match(app.confirmations[0], /attached INT sight/);
+    assert.equal(app.layers.has(fix), false);
+    assert.equal(app.layers.has(star), false);
+    assert.equal(app.lines.every(line => !app.layers.has(line)), true);
+    const restored = createApp({ storageValues: app.storageValues });
+    assert.equal(restored.markers.length, 0);
+    assert.equal(restored.lines.length, 0);
+});
+
+test("cancelling INT deletion and invalid saved INT data preserve the AP and stored graph", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    app.select("intTool");
+    app.elements.intName.value = "Capella";
+    app.elements.intBearing.value = "45";
+    app.elements.intDistance.value = "3";
+    app.submit("intForm");
+    app.lines[0].fire("click");
+    app.setConfirmResult(false);
+    app.deleteKey();
+    assert.equal(app.layers.has(app.markers[0]), true);
+    assert.equal(app.lines.every(line => app.layers.has(line)), true);
+
+    const storedBeforeInvalidRestore = app.storageValues.get("navi-tools.navigation.v1");
+    const corrupted = JSON.parse(storedBeforeInvalidRestore);
+    corrupted.intercepts[0].bearing = -1;
+    app.storageValues.set("navi-tools.navigation.v1", JSON.stringify(corrupted));
+    const invalidRestore = createApp({ storageValues: app.storageValues });
+    assert.equal(invalidRestore.markers.length, 0);
+    assert.match(invalidRestore.text(), /Navigation data load failed/);
+    assert.equal(
+        app.storageValues.get("navi-tools.navigation.v1"),
+        JSON.stringify(corrupted)
+    );
+});
+
+test("INT rejects missing names, invalid bearings, and nonnumeric distances", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    app.select("intTool");
+    app.elements.intName.value = "";
+    app.elements.intBearing.value = "361";
+    app.elements.intDistance.value = "10";
+    app.submit("intForm");
+    assert.equal(app.elements.intPopup.hidden, false);
+    assert.match(app.elements.intError.textContent, /star name/);
+    assert.equal(app.lines.length, 0);
+
+    app.elements.intName.value = "Mira";
+    app.elements.intBearing.value = "10";
+    app.elements.intDistance.value = "not-a-number";
+    app.submit("intForm");
+    assert.equal(app.lines.length, 0);
+});
+
+test("INT escapes the star name in the star marker and both LOP labels", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    app.select("intTool");
+    app.elements.intName.value = "<img src=x onerror=alert(1)>";
+    app.elements.intBearing.value = "15";
+    app.elements.intDistance.value = "1";
+    app.submit("intForm");
+
+    assert.match(app.interceptStars[0].options.icon.html, /&lt;img/);
+    assert.doesNotMatch(app.interceptStars[0].options.icon.html, /<img/);
+    const lopLabel = app.annotations.find(marker =>
+        marker.options.icon.className === "intercept-lop-label-icon"
+    );
+    assert.match(lopLabel.options.icon.html, /&lt;img/);
+    assert.doesNotMatch(lopLabel.options.icon.html, /<img/);
 });
 
 test("GCR connects a selected FIX to a new FIX with a dark-blue great-circle route", () => {
@@ -702,7 +1176,7 @@ test("point info formats coordinates as padded degrees and decimal minutes", () 
 
     assert.equal(
         app.elements.pointPosition.value,
-        "S 12° 30.000' - W 003° 15.000'"
+        "S 12° 30.00' - W 003° 15.00'"
     );
 });
 
@@ -715,11 +1189,47 @@ test("FIX position edits parse formatted coordinates and reject invalid minutes"
 
     assert.ok(Math.abs(app.markers[0].getLatLng().lat - (-12.5083333333)) < 0.000001);
     assert.ok(Math.abs(app.markers[0].getLatLng().lng - (-3.2541666667)) < 0.000001);
+    assert.equal(
+        app.elements.pointPosition.value,
+        "S 12° 30.50' - W 003° 15.25'"
+    );
 
     app.elements.pointPosition.value = "N 90° 00.001' - E 010° 00.000'";
     app.submit("pointInfo");
     assert.equal(app.markers[0].getLatLng().lat, -12.508333333333333);
     assert.match(app.text(), /format N 54°/);
+});
+
+test("FIX position parsing accepts flexible minute precision, optional separators, and east O", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+
+    [
+        ["N 12° 4.4' E 3° 5'", 12 + 4.4 / 60, 3 + 5 / 60],
+        ["S 12° 4.40' - O 3° 5.00'", -(12 + 4.4 / 60), 3 + 5 / 60],
+        ["N 12° 4.400' O 3°", 12 + 4.4 / 60, 3],
+        ["S 12° W 3° 5.250'", -12, -(3 + 5.25 / 60)]
+    ].forEach(([position, latitude, longitude]) => {
+        app.elements.pointPosition.value = position;
+        app.submit("pointInfo");
+        assert.ok(Math.abs(app.markers[0].getLatLng().lat - latitude) < 1e-10);
+        assert.ok(Math.abs(app.markers[0].getLatLng().lng - longitude) < 1e-10);
+    });
+
+    assert.equal(app.elements.pointPosition.value, "S 12° 00.00' - W 003° 05.25'");
+});
+
+test("FIX position input does not apply a conflicting native format pattern", () => {
+    const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
+    const pointPositionInput = html.match(/<input\b[^>]*id="pointPosition"[^>]*>/);
+
+    assert.ok(pointPositionInput);
+    assert.doesNotMatch(pointPositionInput[0], /\spattern=/);
+    assert.match(
+        pointPositionInput[0],
+        /placeholder="N 54° 10\.12' - E 10° 12\.34'"/
+    );
 });
 
 test("map point labels escape custom text and refresh coordinates after edits", () => {
@@ -819,13 +1329,35 @@ test("the coordinate grid renders canvas lines and coordinate labels", () => {
     );
 });
 
-test("grid labels use padded degrees and rounded whole minutes", () => {
+test("grid labels use padded degrees and precision appropriate to grid spacing", () => {
     const app = createApp();
     assert.equal(app.formatGridCoordinate(30, true), "N 30°");
     assert.equal(app.formatGridCoordinate(30.2, true), "N 30° 12'");
     assert.equal(app.formatGridCoordinate(-12.25, true), "S 12° 15'");
     assert.equal(app.formatGridCoordinate(10.2666666667, false), "E 010° 16'");
     assert.equal(app.formatGridCoordinate(-3.999999, false), "W 004°");
+    assert.equal(app.formatGridCoordinate(30 + 12.1 / 60, true, 1), "N 30° 12.1'");
+    assert.equal(app.formatGridCoordinate(30.2, true, 1), "N 30° 12'");
+    assert.equal(app.formatGridCoordinate(30 + 12.12 / 60, true, 2), "N 30° 12.12'");
+});
+
+test("zoomed-in grid labels show fractional minutes where grid spacing requires it", () => {
+    const app = createApp();
+    app.setGridPixelBounds({
+        min: { x: 10, y: 10 },
+        max: { x: 246, y: 246 }
+    });
+
+    app.grid().createTile({ x: 0, y: 0, z: 15 });
+
+    assert.equal(
+        app.gridLabels.some(label => /^[EW] \d{3}° \d{2}\.\d+'$/.test(label)),
+        true
+    );
+    assert.equal(
+        app.gridLabels.some(label => /^[NS] \d{2}° \d{2}\.\d+'$/.test(label)),
+        true
+    );
 });
 
 test("grid labels only appear where grid lines meet the viewport border", () => {
@@ -1093,6 +1625,24 @@ test("storage read, write, and invalid-data failures are shown to the user", () 
     failedGcrSave.select("gcrTool");
     failedGcrSave.click(3, 4);
     assert.match(failedGcrSave.text(), /Navigation data save failed/);
+
+    const failedBearingSave = createApp({ failStorageWrite: true });
+    failedBearingSave.select("fixTool");
+    failedBearingSave.click(1, 2);
+    failedBearingSave.select("brgToTool");
+    failedBearingSave.elements.brgToBearing.value = "90";
+    failedBearingSave.submit("brgToForm");
+    assert.match(failedBearingSave.text(), /Navigation data save failed/);
+
+    const failedInterceptSave = createApp({ failStorageWrite: true });
+    failedInterceptSave.select("fixTool");
+    failedInterceptSave.click(1, 2);
+    failedInterceptSave.select("intTool");
+    failedInterceptSave.elements.intName.value = "Sirius";
+    failedInterceptSave.elements.intBearing.value = "90";
+    failedInterceptSave.elements.intDistance.value = "2";
+    failedInterceptSave.submit("intForm");
+    assert.match(failedInterceptSave.text(), /Navigation data save failed/);
 
     const storageValues = new Map([
         ["navi-tools.navigation.v1", "{not valid JSON"]
