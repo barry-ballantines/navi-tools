@@ -58,7 +58,7 @@ const seamark = L.tileLayer(
     }
 );
 
-const gridSteps = [180, 90, 45, 30, 15, 6, 3, 2, 1, 0.5, 0.25, 0.1, 0.05, 0.02, 0.01, 0.005];
+const gridSteps = [180, 90, 45, 30, 15, 6, 3, 2, 1, 30/60, 20/60, 10/60, 5/60, 1/60];
 
 function gridMinutePrecision(gridStep) {
     const gridStepMinutes = gridStep * 60;
