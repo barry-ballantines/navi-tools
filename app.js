@@ -474,6 +474,7 @@ function escapeHtml(value) {
 }
 
 function setInfoMessage(message) {
+    document.getElementById("info").hidden = false;
     infoMessage.textContent = message;
     pointInfo.hidden = true;
     lineInfo.hidden = true;
@@ -563,6 +564,7 @@ function parsePosition(value) {
 }
 
 function showPointInfo(point) {
+    document.getElementById("info").hidden = false;
     infoMessage.textContent = "";
     pointInfo.hidden = false;
     lineInfo.hidden = true;
@@ -575,6 +577,7 @@ function showPointInfo(point) {
 }
 
 function showLineInfo(line) {
+    document.getElementById("info").hidden = false;
     infoMessage.textContent = "";
     pointInfo.hidden = true;
     lineInfo.hidden = false;
@@ -585,6 +588,7 @@ function showLineInfo(line) {
 }
 
 function showInterceptInfo(intercept) {
+    document.getElementById("info").hidden = false;
     infoMessage.textContent = "";
     pointInfo.hidden = true;
     lineInfo.hidden = true;
@@ -1824,6 +1828,18 @@ function activateButton(id) {
         document.getElementById(id).classList.add("active");
     }
 }
+
+const menuToggle = document.getElementById("menuToggle");
+const toolbarActions = document.getElementById("toolbarActions");
+menuToggle.onclick = () => {
+    const expanded = menuToggle.getAttribute("aria-expanded") === "true";
+    menuToggle.setAttribute("aria-expanded", String(!expanded));
+    menuToggle.querySelector("span").textContent = expanded ? "+" : "−";
+    toolbarActions.hidden = expanded;
+};
+document.getElementById("infoClose").onclick = () => {
+    document.getElementById("info").hidden = true;
+};
 
 function openDrPopup() {
     if (!points.includes(selectedObject)) {

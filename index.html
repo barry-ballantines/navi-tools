@@ -49,15 +49,31 @@
 </div>
 
 <div class="toolbar">
-    <button id="fixTool">FIX</button>
-    <button id="drTool" disabled>DR</button>
-    <button id="gcrTool" disabled>GCR</button>
-    <button id="brgToTool" disabled>BRG TO</button>
-    <button id="intTool" disabled>INT</button>
-    <button id="clearTool">Clear</button>
+    <button
+        id="menuToggle"
+        class="menu-toggle"
+        type="button"
+        aria-expanded="true"
+        aria-controls="toolbarActions"
+    >Menu <span aria-hidden="true">−</span></button>
+    <div class="toolbar-actions" id="toolbarActions">
+        <button id="fixTool">FIX</button>
+        <button id="drTool" disabled>DR</button>
+        <button id="gcrTool" disabled>GCR</button>
+        <button id="brgToTool" disabled>BRG TO</button>
+        <button id="intTool" disabled>INT</button>
+        <button id="clearTool">Clear</button>
+    </div>
 </div>
 
 <div class="info" id="info">
+    <button
+        id="infoClose"
+        class="info-close"
+        type="button"
+        aria-label="Close information panel"
+        title="Close"
+    >×</button>
     <div id="infoMessage">
         Select FIX to place a fix<br>
         Select a point, then DR to create a dead-reckoning leg<br>

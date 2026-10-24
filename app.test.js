@@ -34,6 +34,10 @@ function createApp(options = {}) {
             ? "INPUT"
             : "DIV",
         classList: { add() {}, remove() {} },
+        attributes: {},
+        setAttribute(name, value) { this.attributes[name] = value; },
+        getAttribute(name) { return this.attributes[name] || null; },
+        querySelector() { return element(id + "Child"); },
         addEventListener(event, handler) {
             eventHandlers[id + ":" + event] = handler;
         },
@@ -41,7 +45,8 @@ function createApp(options = {}) {
     });
     const elements = Object.fromEntries(
         [
-            "info", "infoMessage", "fixTool", "drTool", "gcrTool", "brgToTool", "intTool", "clearTool",
+            "info", "infoClose", "infoMessage", "menuToggle", "toolbarActions",
+            "fixTool", "drTool", "gcrTool", "brgToTool", "intTool", "clearTool",
             "pointInfo", "pointType", "pointLabel", "pointPosition",
             "lineInfo", "lineTitle", "lineBearing", "lineDistance", "drPopup", "drForm",
             "interceptInfo", "interceptName", "interceptBearing", "interceptDistance",
@@ -55,6 +60,8 @@ function createApp(options = {}) {
             .map(id => [id, element(id)])
     );
     elements.pointInfo.hidden = true;
+    elements.menuToggle.attributes["aria-expanded"] = "true";
+    elements.toolbarActions.hidden = false;
     elements.lineInfo.hidden = true;
     elements.drPopup.hidden = true;
     elements.brgToPopup.hidden = true;
@@ -476,6 +483,24 @@ function createApp(options = {}) {
         }
     };
 }
+
+test("toolbar menu collapses and info panel can close and reopen", () => {
+    const app = createApp();
+    const { elements } = app;
+
+    elements.menuToggle.onclick();
+    assert.equal(elements.toolbarActions.hidden, true);
+    assert.equal(elements.menuToggle.getAttribute("aria-expanded"), "false");
+
+    elements.menuToggle.onclick();
+    assert.equal(elements.toolbarActions.hidden, false);
+    assert.equal(elements.menuToggle.getAttribute("aria-expanded"), "true");
+
+    elements.infoClose.onclick();
+    assert.equal(elements.info.hidden, true);
+    elements.fixTool.onclick();
+    assert.equal(elements.info.hidden, false);
+});
 
 test("FIX tool places named, draggable FIX points only while active", () => {
     const app = createApp();
