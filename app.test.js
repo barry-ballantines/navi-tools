@@ -559,6 +559,43 @@ test("DR is enabled for a selected point and creates a named DR leg", () => {
     assert.equal(app.elements.drTool.disabled, false);
 });
 
+test("GCR and INT are available from a selected DR point", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    app.select("drTool");
+    app.elements.drBearing.value = "90";
+    app.elements.drDistance.value = "60";
+    app.submit("drForm");
+
+    const drPoint = app.markers[1];
+    assert.equal(app.elements.gcrTool.disabled, false);
+    assert.equal(app.elements.intTool.disabled, false);
+
+    app.select("gcrTool");
+    assert.match(app.text(), /Great Circle Route from DR 1/);
+    app.click(1, 2);
+    assert.equal(app.lines[1].options.color, "#003366");
+    assert.ok(Math.abs(app.lines[1].latlngs[0].lat - drPoint.getLatLng().lat) < 1e-10);
+    assert.ok(Math.abs(app.lines[1].latlngs[0].lng - drPoint.getLatLng().lng) < 1e-10);
+    const saved = JSON.parse(app.storageValues.get("navi-tools.navigation.v1"));
+    assert.equal(saved.greatCircleRoutes[0].startPointId, "point-2");
+
+    drPoint.fire("click");
+    app.select("intTool");
+    assert.equal(app.elements.intPopup.hidden, false);
+    assert.equal(app.elements.intFixLabel.textContent, "DR 1");
+    app.elements.intName.value = "Sirius";
+    app.elements.intBearing.value = "25";
+    app.elements.intDistance.value = "12.5";
+    app.submit("intForm");
+
+    assert.equal(app.interceptStars.length, 1);
+    const restored = createApp({ storageValues: app.storageValues });
+    assert.equal(restored.interceptStars.length, 1);
+    assert.equal(restored.lines.length, 4);
+});
+
 test("BRG TO creates a dashed 5 nm line ending at the selected FIX", () => {
     const app = createApp();
     app.select("fixTool");

@@ -643,16 +643,14 @@ function updateSelectionStyle() {
     drButton.disabled = !selectedObject || !points.includes(selectedObject);
     gcrButton.disabled =
         !selectedObject ||
-        !points.includes(selectedObject) ||
-        selectedObject.type !== "FIX";
+        !points.includes(selectedObject);
     brgToButton.disabled =
         !selectedObject ||
         !points.includes(selectedObject) ||
         selectedObject.type !== "FIX";
     interceptButton.disabled =
         !selectedObject ||
-        !points.includes(selectedObject) ||
-        selectedObject.type !== "FIX";
+        !points.includes(selectedObject);
 }
 
 function selectObject(object) {
@@ -924,7 +922,12 @@ function updateGreatCircleRoutesForPoint(point) {
         .filter(route =>
             route.startPoint === point || route.endPoint === point
         )
-        .forEach(updateGreatCircleRoute);
+        .forEach(route => {
+            updateGreatCircleRoute(route);
+            if (route === selectedObject) {
+                showGreatCircleRouteInfo(route);
+            }
+        });
 }
 
 function distanceNMBetween(first, second) {
@@ -968,6 +971,10 @@ function updateLineAndDescendants(line, updateLabels = true) {
     if (updateLabels) {
         updateLineAnnotation(line);
     }
+    intercepts
+        .filter(intercept => intercept.apPoint === line.endPoint)
+        .forEach(renderIntercept);
+    updateGreatCircleRoutesForPoint(line.endPoint);
     navigationLines
         .filter(candidate => candidate.startPoint === line.endPoint)
         .forEach(child => updateLineAndDescendants(child, updateLabels));
@@ -1822,8 +1829,8 @@ function validateStoredNavigationState(state) {
             lineIds.has(route.id) ||
             !startPoint ||
             !endPoint ||
-            startPoint.type !== "FIX" ||
-            endPoint.type !== "FIX"
+            !["FIX", "DR"].includes(startPoint.type) ||
+            !["FIX", "DR"].includes(endPoint.type)
         ) {
             invalid("great circle route record");
         }
@@ -1856,7 +1863,7 @@ function validateStoredNavigationState(state) {
             !interceptIdMatch ||
             lineIds.has(intercept.id) ||
             !apPoint ||
-            apPoint.type !== "FIX" ||
+            !["FIX", "DR"].includes(apPoint.type) ||
             typeof intercept.starName !== "string" ||
             !intercept.starName.trim() ||
             !Number.isFinite(intercept.bearing) ||
@@ -2044,7 +2051,7 @@ function closeBearingPopup() {
 }
 
 function openInterceptPopup() {
-    if (!points.includes(selectedObject) || selectedObject.type !== "FIX") {
+    if (!points.includes(selectedObject)) {
         return;
     }
     mode = null;
@@ -2423,7 +2430,7 @@ gcrButton.onclick = () => {
         setInfoMessage("GCR tool off");
         return;
     }
-    if (!points.includes(selectedObject) || selectedObject.type !== "FIX") {
+    if (!points.includes(selectedObject)) {
         return;
     }
     mode = "gcr";
@@ -2499,8 +2506,7 @@ intForm.addEventListener("submit", event => {
         bearing < 0 ||
         bearing > 360 ||
         !Number.isFinite(distance) ||
-        !points.includes(selectedObject) ||
-        selectedObject.type !== "FIX"
+        !points.includes(selectedObject)
     ) {
         intError.textContent =
             "Enter a star name, bearing from 0° to 360°, and a numeric intercept distance.";
