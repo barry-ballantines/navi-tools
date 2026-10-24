@@ -26,7 +26,8 @@ try {
     viewportReadError = error;
 }
 
-const map = L.map("map").setView(initialMapView.center, initialMapView.zoom);
+const map = L.map("map", { zoomControl: false })
+    .setView(initialMapView.center, initialMapView.zoom);
 
 function isValidStoredViewport(viewport) {
     return Boolean(
