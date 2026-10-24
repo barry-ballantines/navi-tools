@@ -182,9 +182,19 @@ function createApp(options = {}) {
         },
         unproject(point) { return { lat: 85 - point.y / 256, lng: point.x / 256 }; },
         project(latlng) { return { x: latlng.lng * 256, y: (85 - latlng.lat) * 256 }; },
-        latLngToLayerPoint(latlng) { return this.project(latlng); },
+        latLngToLayerPoint(latlng) {
+            const scale = 256 * 2 ** (mapZoom - 6);
+            return {
+                x: latlng.lng * scale,
+                y: (85 - latlng.lat) * scale
+            };
+        },
         layerPointToLatLng(point) {
-            return { lat: 85 - point.y / 256, lng: point.x / 256 };
+            const scale = 256 * 2 ** (mapZoom - 6);
+            return {
+                lat: 85 - point.y / scale,
+                lng: point.x / scale
+            };
         }
     };
     class MockLayer {
@@ -1007,6 +1017,52 @@ test("GCR connects a selected FIX to a new FIX with a dark-blue great-circle rou
     assert.equal(app.elements.gcrTool.disabled, false);
 });
 
+test("selected GCR shows distance and endpoint headings with a blue aligned map label", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    app.select("gcrTool");
+    app.click(0, 10);
+
+    const route = app.lines[0];
+    const annotations = app.annotations.filter(marker =>
+        marker.options.icon.className === "gcr-annotation-icon"
+    );
+    assert.equal(annotations.length, 2);
+    assert.match(annotations[0].icon.html, /gcr-annotation-heading">090°/);
+    assert.match(annotations[1].icon.html, /gcr-annotation-heading">090°/);
+    annotations.forEach(annotation => {
+        assert.match(annotation.icon.html, /gcr-annotation-distance">600\.4 nm/);
+        assert.match(annotation.icon.html, /rotate\(-?\d+\.\d{2}deg\)/);
+        assert.doesNotMatch(annotation.icon.html, />(?:DEP|DEST) /);
+    });
+    assert.ok(annotations[0].latlng.lng < 2);
+    assert.ok(annotations[1].latlng.lng > 8);
+    const projectedGap = (annotation, fix) =>
+        Math.abs(annotation.latlng.lng - fix.getLatLng().lng) *
+        256 * 2 ** (app.viewport().zoom - 6);
+    assert.ok(Math.abs(projectedGap(annotations[0], app.markers[0]) - 80) < 0.01);
+    assert.ok(Math.abs(projectedGap(annotations[1], app.markers[1]) - 80) < 0.01);
+
+    route.fire("click");
+    assert.match(app.text(), /Length: 600\.4 nm/);
+    assert.match(app.text(), /Departure heading: 090°/);
+    assert.match(app.text(), /Arrival heading: 090°/);
+
+    const previousIcons = annotations.map(annotation => annotation.icon);
+    app.markers[1].dragTo({ lat: 0, lng: 20 });
+    app.endDrag(1);
+    annotations.forEach((annotation, index) => {
+        assert.notEqual(annotation.icon, previousIcons[index]);
+        assert.match(annotation.icon.html, /gcr-annotation-distance">1200\.8 nm/);
+    });
+    assert.match(app.text(), /Length: 1200\.8 nm/);
+
+    app.setViewport(0, 10, 8);
+    assert.ok(Math.abs(projectedGap(annotations[0], app.markers[0]) - 80) < 0.01);
+    assert.ok(Math.abs(projectedGap(annotations[1], app.markers[1]) - 80) < 0.01);
+});
+
 test("moving either GCR endpoint recalculates the route and preserves the other endpoint", () => {
     const app = createApp();
     app.select("fixTool");
@@ -1046,6 +1102,12 @@ test("GCR routes persist across reloads and are removed when their FIX is delete
 
     restored.markers[0].fire("click");
     restored.deleteKey();
+    const routeAnnotations = restored.annotations.filter(marker =>
+        marker.options.icon.className === "gcr-annotation-icon"
+    );
+    routeAnnotations.forEach(annotation =>
+        assert.equal(restored.layers.has(annotation), false)
+    );
     const afterDelete = createApp({ storageValues: restored.storageValues });
     assert.equal(afterDelete.markers.length, 1);
     assert.equal(afterDelete.lines.length, 0);

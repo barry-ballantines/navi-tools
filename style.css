@@ -305,6 +305,55 @@ body {
     transform: translate(-50%, -100%);
 }
 
+.gcr-annotation-icon {
+    border: 0;
+    background: transparent;
+    pointer-events: none;
+}
+
+.gcr-annotation-content {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: block;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+.gcr-annotation-heading,
+.gcr-annotation-distance {
+    position: absolute;
+    left: 0;
+    padding: 1px 3px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.3);
+    color: #003366;
+    font-size: 9px;
+    font-weight: normal;
+    line-height: 11px;
+    white-space: nowrap;
+    transform: translateX(-50%);
+}
+
+.gcr-annotation-heading {
+    top: -2px;
+    transform: translate(-50%, -100%);
+}
+
+.gcr-annotation-distance {
+    top: 2px;
+}
+
+.gcr-annotation-flipped .gcr-annotation-heading {
+    top: 2px;
+    transform: translateX(-50%);
+}
+
+.gcr-annotation-flipped .gcr-annotation-distance {
+    top: -2px;
+    transform: translate(-50%, -100%);
+}
+
 .toolbar {
     position: absolute;
     top: 10px;
@@ -397,6 +446,10 @@ button:hover {
 
 .info-close:hover {
     background: #ececec;
+}
+
+#infoMessage {
+    white-space: pre-line;
 }
 
 .info form {
