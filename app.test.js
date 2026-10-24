@@ -34,6 +34,10 @@ function createApp(options = {}) {
             ? "INPUT"
             : "DIV",
         classList: { add() {}, remove() {} },
+        attributes: {},
+        setAttribute(name, value) { this.attributes[name] = value; },
+        getAttribute(name) { return this.attributes[name] || null; },
+        querySelector() { return element(id + "Child"); },
         addEventListener(event, handler) {
             eventHandlers[id + ":" + event] = handler;
         },
@@ -41,7 +45,8 @@ function createApp(options = {}) {
     });
     const elements = Object.fromEntries(
         [
-            "info", "infoMessage", "fixTool", "drTool", "gcrTool", "brgToTool", "intTool", "clearTool",
+            "info", "infoClose", "infoMessage", "menuToggle", "toolbarActions",
+            "fixTool", "drTool", "gcrTool", "brgToTool", "intTool", "clearTool",
             "pointInfo", "pointType", "pointLabel", "pointPosition",
             "lineInfo", "lineTitle", "lineBearing", "lineDistance", "drPopup", "drForm",
             "interceptInfo", "interceptName", "interceptBearing", "interceptDistance",
@@ -55,6 +60,8 @@ function createApp(options = {}) {
             .map(id => [id, element(id)])
     );
     elements.pointInfo.hidden = true;
+    elements.menuToggle.attributes["aria-expanded"] = "true";
+    elements.toolbarActions.hidden = false;
     elements.lineInfo.hidden = true;
     elements.drPopup.hidden = true;
     elements.brgToPopup.hidden = true;
@@ -175,9 +182,19 @@ function createApp(options = {}) {
         },
         unproject(point) { return { lat: 85 - point.y / 256, lng: point.x / 256 }; },
         project(latlng) { return { x: latlng.lng * 256, y: (85 - latlng.lat) * 256 }; },
-        latLngToLayerPoint(latlng) { return this.project(latlng); },
+        latLngToLayerPoint(latlng) {
+            const scale = 256 * 2 ** (mapZoom - 6);
+            return {
+                x: latlng.lng * scale,
+                y: (85 - latlng.lat) * scale
+            };
+        },
         layerPointToLatLng(point) {
-            return { lat: 85 - point.y / 256, lng: point.x / 256 };
+            const scale = 256 * 2 ** (mapZoom - 6);
+            return {
+                lat: 85 - point.y / scale,
+                lng: point.x / scale
+            };
         }
     };
     class MockLayer {
@@ -476,6 +493,24 @@ function createApp(options = {}) {
         }
     };
 }
+
+test("toolbar menu collapses and info panel can close and reopen", () => {
+    const app = createApp();
+    const { elements } = app;
+
+    elements.menuToggle.onclick();
+    assert.equal(elements.toolbarActions.hidden, true);
+    assert.equal(elements.menuToggle.getAttribute("aria-expanded"), "false");
+
+    elements.menuToggle.onclick();
+    assert.equal(elements.toolbarActions.hidden, false);
+    assert.equal(elements.menuToggle.getAttribute("aria-expanded"), "true");
+
+    elements.infoClose.onclick();
+    assert.equal(elements.info.hidden, true);
+    elements.fixTool.onclick();
+    assert.equal(elements.info.hidden, false);
+});
 
 test("FIX tool places named, draggable FIX points only while active", () => {
     const app = createApp();
@@ -982,6 +1017,52 @@ test("GCR connects a selected FIX to a new FIX with a dark-blue great-circle rou
     assert.equal(app.elements.gcrTool.disabled, false);
 });
 
+test("selected GCR shows distance and endpoint headings with a blue aligned map label", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(0, 0);
+    app.select("gcrTool");
+    app.click(0, 10);
+
+    const route = app.lines[0];
+    const annotations = app.annotations.filter(marker =>
+        marker.options.icon.className === "gcr-annotation-icon"
+    );
+    assert.equal(annotations.length, 2);
+    assert.match(annotations[0].icon.html, /gcr-annotation-heading">090°/);
+    assert.match(annotations[1].icon.html, /gcr-annotation-heading">090°/);
+    annotations.forEach(annotation => {
+        assert.match(annotation.icon.html, /gcr-annotation-distance">600\.4 nm/);
+        assert.match(annotation.icon.html, /rotate\(-?\d+\.\d{2}deg\)/);
+        assert.doesNotMatch(annotation.icon.html, />(?:DEP|DEST) /);
+    });
+    assert.ok(annotations[0].latlng.lng < 2);
+    assert.ok(annotations[1].latlng.lng > 8);
+    const projectedGap = (annotation, fix) =>
+        Math.abs(annotation.latlng.lng - fix.getLatLng().lng) *
+        256 * 2 ** (app.viewport().zoom - 6);
+    assert.ok(Math.abs(projectedGap(annotations[0], app.markers[0]) - 80) < 0.01);
+    assert.ok(Math.abs(projectedGap(annotations[1], app.markers[1]) - 80) < 0.01);
+
+    route.fire("click");
+    assert.match(app.text(), /Length: 600\.4 nm/);
+    assert.match(app.text(), /Departure heading: 090°/);
+    assert.match(app.text(), /Arrival heading: 090°/);
+
+    const previousIcons = annotations.map(annotation => annotation.icon);
+    app.markers[1].dragTo({ lat: 0, lng: 20 });
+    app.endDrag(1);
+    annotations.forEach((annotation, index) => {
+        assert.notEqual(annotation.icon, previousIcons[index]);
+        assert.match(annotation.icon.html, /gcr-annotation-distance">1200\.8 nm/);
+    });
+    assert.match(app.text(), /Length: 1200\.8 nm/);
+
+    app.setViewport(0, 10, 8);
+    assert.ok(Math.abs(projectedGap(annotations[0], app.markers[0]) - 80) < 0.01);
+    assert.ok(Math.abs(projectedGap(annotations[1], app.markers[1]) - 80) < 0.01);
+});
+
 test("moving either GCR endpoint recalculates the route and preserves the other endpoint", () => {
     const app = createApp();
     app.select("fixTool");
@@ -1021,6 +1102,12 @@ test("GCR routes persist across reloads and are removed when their FIX is delete
 
     restored.markers[0].fire("click");
     restored.deleteKey();
+    const routeAnnotations = restored.annotations.filter(marker =>
+        marker.options.icon.className === "gcr-annotation-icon"
+    );
+    routeAnnotations.forEach(annotation =>
+        assert.equal(restored.layers.has(annotation), false)
+    );
     const afterDelete = createApp({ storageValues: restored.storageValues });
     assert.equal(afterDelete.markers.length, 1);
     assert.equal(afterDelete.lines.length, 0);
@@ -1275,6 +1362,8 @@ test("clear removes navigation objects but preserves map layers", () => {
     app.submit("drForm");
     app.select("clearTool");
 
+    assert.match(app.confirmations[0], /delete all navigation points, routes/);
+    assert.match(app.confirmations[0], /cannot be undone/i);
     assert.equal(app.layers.size, 3);
     assert.equal(app.markers.length, 2);
     assert.equal(app.lines.length, 1);
@@ -1285,6 +1374,22 @@ test("clear removes navigation objects but preserves map layers", () => {
     app.click(1, 1);
     assert.equal(app.markers.length, 3);
     assert.equal(app.markers[2].options.alt, "FIX 1");
+});
+
+test("cancelling clear preserves navigation objects and saved data", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(1, 2);
+    const savedNavigation = app.storageValues.get("navi-tools.navigation.v1");
+    app.setConfirmResult(false);
+
+    app.select("clearTool");
+
+    assert.equal(app.confirmations.length, 1);
+    assert.match(app.confirmations[0], /cannot be undone/i);
+    assert.equal(app.markers.length, 1);
+    assert.equal(app.layers.has(app.markers[0]), true);
+    assert.equal(app.storageValues.get("navi-tools.navigation.v1"), savedNavigation);
 });
 
 test("OpenSeaMap seamarks and the coordinate grid are enabled as overlays", () => {
@@ -1463,6 +1568,7 @@ test("deleting a selected DR removes its defining line and confirms", () => {
     app.deleteKey();
 
     assert.equal(app.confirmations.length, 1);
+    assert.match(app.confirmations[0], /cannot be undone/i);
     assert.equal(app.layers.has(app.markers[0]), true);
     assert.equal(app.layers.has(app.markers[1]), false);
     assert.equal(app.layers.has(app.lines[0]), false);

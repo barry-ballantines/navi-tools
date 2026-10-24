@@ -26,7 +26,8 @@ try {
     viewportReadError = error;
 }
 
-const map = L.map("map").setView(initialMapView.center, initialMapView.zoom);
+const map = L.map("map", { zoomControl: false })
+    .setView(initialMapView.center, initialMapView.zoom);
 
 function isValidStoredViewport(viewport) {
     return Boolean(
@@ -474,6 +475,7 @@ function escapeHtml(value) {
 }
 
 function setInfoMessage(message) {
+    document.getElementById("info").hidden = false;
     infoMessage.textContent = message;
     pointInfo.hidden = true;
     lineInfo.hidden = true;
@@ -563,6 +565,7 @@ function parsePosition(value) {
 }
 
 function showPointInfo(point) {
+    document.getElementById("info").hidden = false;
     infoMessage.textContent = "";
     pointInfo.hidden = false;
     lineInfo.hidden = true;
@@ -575,6 +578,7 @@ function showPointInfo(point) {
 }
 
 function showLineInfo(line) {
+    document.getElementById("info").hidden = false;
     infoMessage.textContent = "";
     pointInfo.hidden = true;
     lineInfo.hidden = false;
@@ -585,6 +589,7 @@ function showLineInfo(line) {
 }
 
 function showInterceptInfo(intercept) {
+    document.getElementById("info").hidden = false;
     infoMessage.textContent = "";
     pointInfo.hidden = true;
     lineInfo.hidden = true;
@@ -660,13 +665,52 @@ function selectObject(object) {
     } else if (intercepts.includes(object)) {
         showInterceptInfo(object);
     } else if (greatCircleRoutes.includes(object)) {
-        setInfoMessage(
-            "Great Circle Route: " +
-            object.startPoint.label +
-            " to " +
-            object.endPoint.label
-        );
+        showGreatCircleRouteInfo(object);
     }
+}
+
+function initialBearingBetween(start, end) {
+    const radians = degrees => degrees * Math.PI / 180;
+    const latitude1 = radians(start.lat);
+    const latitude2 = radians(end.lat);
+    const longitudeDifference = radians(end.lng - start.lng);
+    const y = Math.sin(longitudeDifference) * Math.cos(latitude2);
+    const x =
+        Math.cos(latitude1) * Math.sin(latitude2) -
+        Math.sin(latitude1) * Math.cos(latitude2) *
+        Math.cos(longitudeDifference);
+    return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+function greatCircleRouteDetails(route) {
+    const start = route.startPoint.latlng;
+    const end = route.endPoint.latlng;
+    return {
+        distanceNM: distanceNMBetween(start, end),
+        departureHeading: initialBearingBetween(start, end),
+        arrivalHeading:
+            (initialBearingBetween(end, start) + 180) % 360
+    };
+}
+
+function formatTrueHeading(heading) {
+    return String(Math.round(heading) % 360).padStart(3, "0") + "°";
+}
+
+function showGreatCircleRouteInfo(route) {
+    const details = greatCircleRouteDetails(route);
+    setInfoMessage(
+        "Great Circle Route: " +
+        route.startPoint.label +
+        " to " +
+        route.endPoint.label +
+        "\nLength: " +
+        details.distanceNM.toFixed(1) +
+        " nm\nDeparture heading: " +
+        formatTrueHeading(details.departureHeading) +
+        "\nArrival heading: " +
+        formatTrueHeading(details.arrivalHeading)
+    );
 }
 
 function destinationPoint(start, bearingDegrees, distanceNM) {
@@ -772,9 +816,107 @@ function greatCirclePath(start, end) {
 }
 
 function updateGreatCircleRoute(route) {
-    route.layer.setLatLngs(
-        greatCirclePath(route.startPoint.latlng, route.endPoint.latlng)
+    const path = greatCirclePath(
+        route.startPoint.latlng,
+        route.endPoint.latlng
     );
+    route.layer.setLatLngs(path);
+    updateGreatCircleRouteAnnotation(route, path);
+}
+
+function greatCircleRouteAnnotationIcon(heading, distanceNM, angle, flipped) {
+    return L.divIcon({
+        className: "gcr-annotation-icon",
+        html:
+            '<span class="gcr-annotation-content' +
+            (flipped ? " gcr-annotation-flipped" : "") +
+            '" style="transform: translate(-50%, -50%) rotate(' +
+            angle.toFixed(2) +
+            'deg)"><span class="gcr-annotation-heading">' +
+            formatTrueHeading(heading) +
+            '</span><span class="gcr-annotation-distance">' +
+            distanceNM.toFixed(1) +
+            " nm</span></span>",
+        iconSize: [0, 0],
+        iconAnchor: [0, 0]
+    });
+}
+
+function updateGreatCircleRouteAnnotation(route, path) {
+    if (!route.annotation || !route.destinationAnnotation) {
+        return;
+    }
+    const projectedPath = path.map(point => map.latLngToLayerPoint(point));
+    const details = greatCircleRouteDetails(route);
+    const pathLength = projectedPath.slice(1).reduce(
+        (length, point, index) =>
+            length + Math.hypot(
+                point.x - projectedPath[index].x,
+                point.y - projectedPath[index].y
+            ),
+        0
+    );
+    const labelOffset = Math.min(80, pathLength / 4);
+    [
+        {
+            marker: route.annotation,
+            position: pointAlongProjectedPath(projectedPath, labelOffset, false),
+            heading: details.departureHeading
+        },
+        {
+            marker: route.destinationAnnotation,
+            position: pointAlongProjectedPath(projectedPath, labelOffset, true),
+            heading: details.arrivalHeading
+        }
+    ].forEach(({ marker, position, heading }) => {
+        const rawAngle = position.angle;
+        const flipped = rawAngle > 90 || rawAngle < -90;
+        const angle = flipped
+            ? rawAngle + (rawAngle > 90 ? -180 : 180)
+            : rawAngle;
+        marker.setLatLng(map.layerPointToLatLng(position.point));
+        marker.setIcon(
+            greatCircleRouteAnnotationIcon(
+                heading,
+                details.distanceNM,
+                angle,
+                flipped
+            )
+        );
+    });
+}
+
+function pointAlongProjectedPath(path, distance, fromEnd) {
+    const segmentCount = path.length - 1;
+    for (let offset = 0; offset < segmentCount; offset += 1) {
+        const startIndex = fromEnd ? segmentCount - offset : offset;
+        const endIndex = fromEnd ? startIndex - 1 : startIndex + 1;
+        const start = path[startIndex];
+        const end = path[endIndex];
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        const segmentLength = Math.hypot(dx, dy);
+        if (distance <= segmentLength || offset === segmentCount - 1) {
+            const fraction = segmentLength
+                ? Math.min(1, distance / segmentLength)
+                : 0;
+            return {
+                point: {
+                    x: start.x + dx * fraction,
+                    y: start.y + dy * fraction
+                },
+                angle: Math.atan2(
+                    fromEnd ? -dy : dy,
+                    fromEnd ? -dx : dx
+                ) * 180 / Math.PI
+            };
+        }
+        distance -= segmentLength;
+    }
+    return {
+        point: path[0],
+        angle: 0
+    };
 }
 
 function updateGreatCircleRoutesForPoint(point) {
@@ -891,6 +1033,7 @@ function updateLineAnnotation(line) {
 function updateLineAnnotations() {
     navigationLines.concat(bearingLines).forEach(updateLineAnnotation);
     intercepts.forEach(renderIntercept);
+    greatCircleRoutes.forEach(updateGreatCircleRoute);
 }
 
 map.on("moveend", updateLineAnnotations);
@@ -938,6 +1081,12 @@ function createPoint(type, latlng, label, id) {
             intercepts
                 .filter(intercept => intercept.apPoint === point)
                 .forEach(intercept => updateInterceptAnnotations(intercept));
+            greatCircleRoutes
+                .filter(route =>
+                    route === selectedObject &&
+                    (route.startPoint === point || route.endPoint === point)
+                )
+                .forEach(showGreatCircleRouteInfo);
             if (selectedObject === point) {
                 showPointInfo(point);
             }
@@ -1450,9 +1599,24 @@ function createGreatCircleRoute(startPoint, endPoint, id) {
             { color: "#003366", weight: 3, bubblingMouseEvents: false }
         ).addTo(map)
     };
+    const annotationOptions = {
+        interactive: false,
+        icon: L.divIcon({
+            className: "gcr-annotation-icon",
+            html: "",
+            iconSize: [0, 0],
+            iconAnchor: [0, 0]
+        })
+    };
+    route.annotation = L.marker(startPoint.latlng, annotationOptions).addTo(map);
+    route.destinationAnnotation = L.marker(
+        endPoint.latlng,
+        annotationOptions
+    ).addTo(map);
     route.layer.on("click", () => selectObject(route));
     greatCircleRoutes.push(route);
-    objects.push(route.layer);
+    objects.push(route.layer, route.annotation, route.destinationAnnotation);
+    updateGreatCircleRoute(route);
     return route;
 }
 
@@ -1825,6 +1989,18 @@ function activateButton(id) {
     }
 }
 
+const menuToggle = document.getElementById("menuToggle");
+const toolbarActions = document.getElementById("toolbarActions");
+menuToggle.onclick = () => {
+    const expanded = menuToggle.getAttribute("aria-expanded") === "true";
+    menuToggle.setAttribute("aria-expanded", String(!expanded));
+    menuToggle.querySelector("span").textContent = expanded ? "+" : "−";
+    toolbarActions.hidden = expanded;
+};
+document.getElementById("infoClose").onclick = () => {
+    document.getElementById("info").hidden = true;
+};
+
 function openDrPopup() {
     if (!points.includes(selectedObject)) {
         return;
@@ -2019,6 +2195,10 @@ function interceptLayers(intercept) {
     ].filter(Boolean);
 }
 
+function confirmDeletion(message) {
+    return window.confirm(message + "\nThis action cannot be undone.");
+}
+
 function deleteSelectedObject() {
     if (!selectedObject) {
         return;
@@ -2039,7 +2219,11 @@ function deleteSelectedObject() {
         ? selectedObject
         : null;
     if (selectedIntercept) {
-        if (!window.confirm("Delete all INT lines and the star for " + selectedIntercept.starName + "?")) {
+        if (!confirmDeletion(
+            "Delete all INT lines and the star for " +
+            selectedIntercept.starName +
+            "?"
+        )) {
             return;
         }
         const removedLayers = new Set(interceptLayers(selectedIntercept));
@@ -2053,7 +2237,7 @@ function deleteSelectedObject() {
         return;
     }
     if (selectedBearingLine) {
-        if (!window.confirm("Delete the selected BRG TO line?")) {
+        if (!confirmDeletion("Delete the selected BRG TO line?")) {
             return;
         }
         map.removeLayer(selectedBearingLine.layer);
@@ -2075,11 +2259,18 @@ function deleteSelectedObject() {
     const affectedLines = new Set();
     const affectedPoints = new Set();
     if (selectedGreatCircleRoute) {
-        if (!window.confirm("Delete the selected Great Circle Route?")) {
+        if (!confirmDeletion("Delete the selected Great Circle Route?")) {
             return;
         }
         map.removeLayer(selectedGreatCircleRoute.layer);
-        objects = objects.filter(object => object !== selectedGreatCircleRoute.layer);
+        map.removeLayer(selectedGreatCircleRoute.annotation);
+        map.removeLayer(selectedGreatCircleRoute.destinationAnnotation);
+        const removedLayers = new Set([
+            selectedGreatCircleRoute.layer,
+            selectedGreatCircleRoute.annotation,
+            selectedGreatCircleRoute.destinationAnnotation
+        ]);
+        objects = objects.filter(object => !removedLayers.has(object));
         greatCircleRoutes = greatCircleRoutes.filter(
             route => route !== selectedGreatCircleRoute
         );
@@ -2144,7 +2335,7 @@ function deleteSelectedObject() {
         message = "Delete the selected " +
             (selectedLine ? "DR leg and its DR point" : "point") + "?";
     }
-    if (!window.confirm(message)) {
+    if (!confirmDeletion(message)) {
         return;
     }
 
@@ -2152,7 +2343,11 @@ function deleteSelectedObject() {
         map.removeLayer(line.layer);
         map.removeLayer(line.annotation);
     });
-    affectedGreatCircleRoutes.forEach(route => map.removeLayer(route.layer));
+    affectedGreatCircleRoutes.forEach(route => {
+        map.removeLayer(route.layer);
+        map.removeLayer(route.annotation);
+        map.removeLayer(route.destinationAnnotation);
+    });
     affectedBearingLines.forEach(line => {
         map.removeLayer(line.layer);
         map.removeLayer(line.annotation);
@@ -2170,7 +2365,9 @@ function deleteSelectedObject() {
         ...Array.from(affectedIntercepts, intercept =>
             interceptLayers(intercept)
         ).flat(),
-        ...Array.from(affectedGreatCircleRoutes, route => route.layer),
+        ...Array.from(affectedGreatCircleRoutes, route =>
+            [route.layer, route.annotation, route.destinationAnnotation]
+        ).flat(),
         ...Array.from(affectedPoints, point => point.marker)
     ]);
     objects = objects.filter(object => !removedLayers.has(object));
@@ -2326,6 +2523,12 @@ lineInfo.addEventListener("submit", applyLineEdits);
 interceptInfo.addEventListener("submit", applyInterceptEdits);
 
 document.getElementById("clearTool").onclick = () => {
+    if (!window.confirm(
+        "Clear everything? This will delete all navigation points, routes, " +
+        "and saved navigation data. This action cannot be undone."
+    )) {
+        return;
+    }
     objects.forEach(object => map.removeLayer(object));
     objects = [];
     points = [];
