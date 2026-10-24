@@ -55,14 +55,15 @@
         type="button"
         aria-expanded="true"
         aria-controls="toolbarActions"
+        title="Show or hide navigation tools"
     >Menu <span aria-hidden="true">−</span></button>
     <div class="toolbar-actions" id="toolbarActions">
-        <button id="fixTool">FIX</button>
-        <button id="drTool" disabled>DR</button>
-        <button id="gcrTool" disabled>GCR</button>
-        <button id="brgToTool" disabled>BRG TO</button>
-        <button id="intTool" disabled>INT</button>
-        <button id="clearTool">Clear</button>
+        <button id="fixTool" title="Place a new FIX on the map">FIX</button>
+        <button id="drTool" title="Create a DR leg from the selected FIX or DR" disabled>DR</button>
+        <button id="gcrTool" title="Create a Great Circle Route from the selected FIX" disabled>GCR</button>
+        <button id="brgToTool" title="Create a bearing line to the selected FIX" disabled>BRG TO</button>
+        <button id="intTool" title="Plot a celestial intercept from the selected FIX" disabled>INT</button>
+        <button id="clearTool" title="Delete all navigation points and routes">Clear</button>
     </div>
 </div>
 
