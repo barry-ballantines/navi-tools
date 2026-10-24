@@ -2195,6 +2195,10 @@ function interceptLayers(intercept) {
     ].filter(Boolean);
 }
 
+function confirmDeletion(message) {
+    return window.confirm(message + "\nThis action cannot be undone.");
+}
+
 function deleteSelectedObject() {
     if (!selectedObject) {
         return;
@@ -2215,7 +2219,11 @@ function deleteSelectedObject() {
         ? selectedObject
         : null;
     if (selectedIntercept) {
-        if (!window.confirm("Delete all INT lines and the star for " + selectedIntercept.starName + "?")) {
+        if (!confirmDeletion(
+            "Delete all INT lines and the star for " +
+            selectedIntercept.starName +
+            "?"
+        )) {
             return;
         }
         const removedLayers = new Set(interceptLayers(selectedIntercept));
@@ -2229,7 +2237,7 @@ function deleteSelectedObject() {
         return;
     }
     if (selectedBearingLine) {
-        if (!window.confirm("Delete the selected BRG TO line?")) {
+        if (!confirmDeletion("Delete the selected BRG TO line?")) {
             return;
         }
         map.removeLayer(selectedBearingLine.layer);
@@ -2251,7 +2259,7 @@ function deleteSelectedObject() {
     const affectedLines = new Set();
     const affectedPoints = new Set();
     if (selectedGreatCircleRoute) {
-        if (!window.confirm("Delete the selected Great Circle Route?")) {
+        if (!confirmDeletion("Delete the selected Great Circle Route?")) {
             return;
         }
         map.removeLayer(selectedGreatCircleRoute.layer);
@@ -2327,7 +2335,7 @@ function deleteSelectedObject() {
         message = "Delete the selected " +
             (selectedLine ? "DR leg and its DR point" : "point") + "?";
     }
-    if (!window.confirm(message)) {
+    if (!confirmDeletion(message)) {
         return;
     }
 
@@ -2515,6 +2523,12 @@ lineInfo.addEventListener("submit", applyLineEdits);
 interceptInfo.addEventListener("submit", applyInterceptEdits);
 
 document.getElementById("clearTool").onclick = () => {
+    if (!window.confirm(
+        "Clear everything? This will delete all navigation points, routes, " +
+        "and saved navigation data. This action cannot be undone."
+    )) {
+        return;
+    }
     objects.forEach(object => map.removeLayer(object));
     objects = [];
     points = [];

@@ -1362,6 +1362,8 @@ test("clear removes navigation objects but preserves map layers", () => {
     app.submit("drForm");
     app.select("clearTool");
 
+    assert.match(app.confirmations[0], /delete all navigation points, routes/);
+    assert.match(app.confirmations[0], /cannot be undone/i);
     assert.equal(app.layers.size, 3);
     assert.equal(app.markers.length, 2);
     assert.equal(app.lines.length, 1);
@@ -1372,6 +1374,22 @@ test("clear removes navigation objects but preserves map layers", () => {
     app.click(1, 1);
     assert.equal(app.markers.length, 3);
     assert.equal(app.markers[2].options.alt, "FIX 1");
+});
+
+test("cancelling clear preserves navigation objects and saved data", () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(1, 2);
+    const savedNavigation = app.storageValues.get("navi-tools.navigation.v1");
+    app.setConfirmResult(false);
+
+    app.select("clearTool");
+
+    assert.equal(app.confirmations.length, 1);
+    assert.match(app.confirmations[0], /cannot be undone/i);
+    assert.equal(app.markers.length, 1);
+    assert.equal(app.layers.has(app.markers[0]), true);
+    assert.equal(app.storageValues.get("navi-tools.navigation.v1"), savedNavigation);
 });
 
 test("OpenSeaMap seamarks and the coordinate grid are enabled as overlays", () => {
@@ -1550,6 +1568,7 @@ test("deleting a selected DR removes its defining line and confirms", () => {
     app.deleteKey();
 
     assert.equal(app.confirmations.length, 1);
+    assert.match(app.confirmations[0], /cannot be undone/i);
     assert.equal(app.layers.has(app.markers[0]), true);
     assert.equal(app.layers.has(app.markers[1]), false);
     assert.equal(app.layers.has(app.lines[0]), false);
