@@ -406,6 +406,74 @@ button:hover {
     background: #ececec;
 }
 
+dialog#ioDialog {
+    width: min(680px, calc(100vw - 48px));
+    max-width: 680px;
+    max-height: calc(100vh - 48px);
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+}
+
+#ioDialog::backdrop {
+    background: rgba(0, 0, 0, 0.45);
+}
+
+.io-dialog-content {
+    display: grid;
+    gap: 10px;
+    padding: 16px;
+}
+
+.io-dialog-header,
+.io-dialog-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.io-dialog-header h2 {
+    margin: 0;
+    font-size: 18px;
+}
+
+.io-dialog-header button {
+    padding: 2px 8px;
+    border: 0;
+    background: transparent;
+    font-size: 22px;
+}
+
+#ioText {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: min(55vh, 480px);
+    resize: vertical;
+    padding: 8px;
+    border: 1px solid #aaa;
+    border-radius: 4px;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
+    line-height: 1.4;
+    white-space: pre;
+}
+
+#ioMessage {
+    min-height: 1em;
+    color: #333;
+    font-size: 13px;
+}
+
+#ioMessage.io-error {
+    color: #b00020;
+}
+
+#ioActivate {
+    margin-left: auto;
+}
+
 [hidden] {
     display: none !important;
 }

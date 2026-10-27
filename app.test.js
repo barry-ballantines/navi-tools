@@ -35,18 +35,24 @@ function createApp(options = {}) {
             : "DIV",
         classList: { add() {}, remove() {} },
         attributes: {},
+        files: [],
         setAttribute(name, value) { this.attributes[name] = value; },
         getAttribute(name) { return this.attributes[name] || null; },
         querySelector() { return element(id + "Child"); },
         addEventListener(event, handler) {
             eventHandlers[id + ":" + event] = handler;
         },
+        click() { this.clickCount = (this.clickCount || 0) + 1; },
+        showModal() { this.open = true; },
+        close() { this.open = false; },
         focus() {}
     });
     const elements = Object.fromEntries(
         [
             "info", "infoClose", "infoMessage", "menuToggle", "toolbarActions",
             "fixTool", "drTool", "gcrTool", "brgToTool", "intTool", "clearTool",
+            "ioTool", "ioDialog", "ioClose", "ioText", "ioMessage", "ioFile",
+            "ioUpload", "ioDownload", "ioActivate",
             "pointInfo", "pointType", "pointLabel", "pointPosition",
             "lineInfo", "lineTitle", "lineBearing", "lineDistance", "drPopup", "drForm",
             "interceptInfo", "interceptName", "interceptBearing", "interceptDistance",
@@ -97,6 +103,9 @@ function createApp(options = {}) {
     const compassStyle = {};
     const compassClasses = new Set();
     const confirmations = [];
+    const downloads = [];
+    const blobUrls = new Map();
+    let nextBlobUrl = 1;
     const storageValues = options.storageValues || new Map();
     const storage = options.storage || {
         getItem(key) {
@@ -118,6 +127,12 @@ function createApp(options = {}) {
             storageValues.delete(key);
         }
     };
+    class MockBlob {
+        constructor(parts, options) {
+            this.text = parts.join("");
+            this.type = options.type;
+        }
+    }
     let confirmResult = true;
     const compass = {
         style: compassStyle,
@@ -317,6 +332,20 @@ function createApp(options = {}) {
                 eventHandlers["document:" + event] = handler;
             },
             createElement: tagName => {
+                if (tagName === "a") {
+                    return {
+                        parentNode: null,
+                        click() {
+                            downloads.push({
+                                name: this.download,
+                                text: blobUrls.get(this.href).text
+                            });
+                        },
+                        remove() {
+                            this.parentNode = null;
+                        }
+                    };
+                }
                 const element = {
                     tagName,
                     getContext: () => ({
@@ -349,6 +378,9 @@ function createApp(options = {}) {
                     })
                 };
                 return element;
+            },
+            body: {
+                appendChild(child) { child.parentNode = this; }
             }
         },
         fetch: () => Promise.resolve({
@@ -367,7 +399,18 @@ function createApp(options = {}) {
                 confirmations.push(message);
                 return confirmResult;
             },
-            localStorage: storage
+            localStorage: storage,
+            Blob: MockBlob,
+            URL: {
+                createObjectURL(blob) {
+                    const url = "blob:mock-" + nextBlobUrl++;
+                    blobUrls.set(url, blob);
+                    return url;
+                },
+                revokeObjectURL(url) {
+                    blobUrls.delete(url);
+                }
+            }
         }
     };
     vm.runInNewContext(
@@ -376,6 +419,7 @@ function createApp(options = {}) {
     );
     return {
         elements,
+        downloads,
         storage,
         storageValues,
         get markers() {
@@ -383,6 +427,9 @@ function createApp(options = {}) {
                 Object.hasOwn(marker.options, "draggable") &&
                 Object.hasOwn(marker.options, "alt")
             );
+        },
+        get activeMarkers() {
+            return this.markers.filter(marker => layers.has(marker));
         },
         get bearingHandles() {
             return markers.filter(marker =>
@@ -441,6 +488,14 @@ function createApp(options = {}) {
                 Object.hasOwn(marker.options, "draggable")
             )[index].endDrag(),
         select: id => elements[id].onclick(),
+        editIoText: text => {
+            elements.ioText.value = text;
+            eventHandlers["ioText:input"]();
+        },
+        uploadFile: async text => {
+            elements.ioFile.files = [{ text: async () => text }];
+            await eventHandlers["ioFile:change"]({ target: elements.ioFile });
+        },
         submit: id => eventHandlers[id + ":submit"]({
             preventDefault() {}
         }),
@@ -510,6 +565,132 @@ test("toolbar menu collapses and info panel can close and reopen", () => {
     assert.equal(elements.info.hidden, true);
     elements.fixTool.onclick();
     assert.equal(elements.info.hidden, false);
+});
+
+test("IN/OUT dialog tracks edits, uploads, and downloads the text area contents", async () => {
+    const app = createApp();
+    app.select("ioTool");
+    const { elements } = app;
+    const initialText = elements.ioText.value;
+
+    assert.equal(elements.ioDialog.open, true);
+    assert.equal(elements.ioActivate.disabled, true);
+    assert.equal(JSON.parse(initialText).version, 1);
+
+    app.editIoText(initialText + " ");
+    assert.equal(elements.ioActivate.disabled, false);
+    app.editIoText(initialText);
+    assert.equal(elements.ioActivate.disabled, true);
+
+    await app.uploadFile(initialText);
+    assert.equal(elements.ioText.value, initialText);
+    assert.equal(elements.ioActivate.disabled, false);
+    assert.equal(elements.ioFile.value, "");
+
+    app.editIoText("manually edited JSON");
+    elements.ioDownload.onclick();
+    assert.deepEqual(app.downloads, [{
+        name: "navitools.json",
+        text: "manually edited JSON"
+    }]);
+});
+
+test("IN/OUT upload does not activate data, and Activate replaces after validation", async () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(1, 2);
+    const previousStorage = app.storageValues.get("navi-tools.navigation.v1");
+    const imported = createApp();
+    imported.select("fixTool");
+    imported.click(10, 20);
+    const importedText = imported.storageValues.get("navi-tools.navigation.v1");
+
+    app.select("ioTool");
+    await app.uploadFile(importedText);
+    assert.equal(app.activeMarkers.length, 1);
+    assert.equal(app.activeMarkers[0].getLatLng().lat, 1);
+    assert.equal(
+        app.storageValues.get("navi-tools.navigation.v1"),
+        previousStorage
+    );
+
+    app.elements.ioActivate.onclick();
+    assert.equal(app.elements.ioDialog.open, false);
+    assert.equal(app.activeMarkers.length, 1);
+    assert.equal(app.activeMarkers[0].getLatLng().lat, 10);
+    assert.equal(
+        app.storageValues.get("navi-tools.navigation.v1"),
+        importedText
+    );
+    assert.match(app.text(), /Navigation data activated/);
+});
+
+test("IN/OUT rejects invalid JSON and graph data without changing navigation", async () => {
+    const app = createApp();
+    app.select("fixTool");
+    app.click(1, 2);
+    const previousStorage = app.storageValues.get("navi-tools.navigation.v1");
+
+    app.select("ioTool");
+    for (const invalidText of [
+        "{not valid JSON",
+        JSON.stringify({ version: 99 })
+    ]) {
+        await app.uploadFile(invalidText);
+        app.elements.ioActivate.onclick();
+
+        assert.equal(app.elements.ioDialog.open, true);
+        assert.equal(app.activeMarkers.length, 1);
+        assert.equal(app.activeMarkers[0].getLatLng().lat, 1);
+        assert.equal(
+            app.storageValues.get("navi-tools.navigation.v1"),
+            previousStorage
+        );
+        assert.match(app.elements.ioMessage.textContent, /JSON|invalid/i);
+    }
+});
+
+test("IN/OUT keeps the active graph when storage rejects activation", async () => {
+    const storageValues = new Map();
+    let denyWrites = false;
+    const storage = {
+        getItem(key) { return storageValues.get(key) || null; },
+        setItem(key, value) {
+            if (denyWrites) {
+                throw new Error("storage write denied");
+            }
+            storageValues.set(key, value);
+        },
+        removeItem(key) {
+            if (denyWrites) {
+                throw new Error("storage write denied");
+            }
+            storageValues.delete(key);
+        }
+    };
+    const app = createApp({ storage, storageValues });
+    app.select("fixTool");
+    app.click(1, 2);
+    const previousStorage = storageValues.get("navi-tools.navigation.v1");
+    const imported = createApp();
+    imported.select("fixTool");
+    imported.click(10, 20);
+    denyWrites = true;
+
+    app.select("ioTool");
+    await app.uploadFile(
+        imported.storageValues.get("navi-tools.navigation.v1")
+    );
+    app.elements.ioActivate.onclick();
+
+    assert.equal(app.elements.ioDialog.open, true);
+    assert.equal(app.activeMarkers.length, 1);
+    assert.equal(app.activeMarkers[0].getLatLng().lat, 1);
+    assert.equal(
+        storageValues.get("navi-tools.navigation.v1"),
+        previousStorage
+    );
+    assert.match(app.elements.ioMessage.textContent, /Could not save/);
 });
 
 test("FIX tool places named, draggable FIX points only while active", () => {

@@ -64,8 +64,32 @@
         <button id="brgToTool" title="Create a bearing line to the selected FIX" disabled>BRG TO</button>
         <button id="intTool" title="Plot a celestial intercept from the selected FIX" disabled>INT</button>
         <button id="clearTool" title="Delete all navigation points and routes">Clear</button>
+        <button id="ioTool" title="View, upload, or download navigation data">IN/OUT</button>
     </div>
 </div>
+
+<dialog id="ioDialog" aria-labelledby="ioDialogTitle">
+    <div class="io-dialog-content">
+        <div class="io-dialog-header">
+            <h2 id="ioDialogTitle">Navigation data</h2>
+            <button id="ioClose" type="button" aria-label="Close dialog">×</button>
+        </div>
+        <label for="ioText">Navigation JSON</label>
+        <textarea
+            id="ioText"
+            spellcheck="false"
+            autofocus
+            aria-describedby="ioMessage"
+        ></textarea>
+        <div id="ioMessage" role="status" aria-live="polite"></div>
+        <div class="io-dialog-actions">
+            <button id="ioDownload" type="button">Download</button>
+            <button id="ioUpload" type="button">Upload</button>
+            <input id="ioFile" type="file" accept=".json,application/json" hidden>
+            <button id="ioActivate" type="button" disabled>Activate</button>
+        </div>
+    </div>
+</dialog>
 
 <div class="info" id="info">
     <button
