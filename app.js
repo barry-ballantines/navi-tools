@@ -1911,6 +1911,40 @@ function restoreNavigationState() {
         return;
     }
 
+    try {
+        rebuildNavigationState(state);
+    } catch (error) {
+        showStorageError("restore", error);
+    }
+}
+
+function clearNavigationGraph() {
+    objects.forEach(object => map.removeLayer(object));
+    objects = [];
+    points = [];
+    navigationLines = [];
+    bearingLines = [];
+    intercepts = [];
+    greatCircleRoutes = [];
+    selectedObject = null;
+    mode = null;
+    gcrStartPoint = null;
+    drPopup.hidden = true;
+    brgToPopup.hidden = true;
+    intPopup.hidden = true;
+    pointInfo.hidden = true;
+    lineInfo.hidden = true;
+    interceptInfo.hidden = true;
+    nextFixNumber = 1;
+    nextDrNumber = 1;
+    nextPointId = 1;
+    nextLineId = 1;
+    activateButton(null);
+    updateSelectionStyle();
+}
+
+function rebuildNavigationState(state) {
+    clearNavigationGraph();
     isRestoringNavigationState = true;
     try {
         nextFixNumber = state.nextFixNumber;
@@ -1980,8 +2014,6 @@ function restoreNavigationState() {
             );
         });
         updateSelectionStyle();
-    } catch (error) {
-        showStorageError("restore", error);
     } finally {
         isRestoringNavigationState = false;
     }
@@ -1998,6 +2030,130 @@ function activateButton(id) {
 
 const menuToggle = document.getElementById("menuToggle");
 const toolbarActions = document.getElementById("toolbarActions");
+const ioDialog = document.getElementById("ioDialog");
+const ioText = document.getElementById("ioText");
+const ioMessage = document.getElementById("ioMessage");
+const ioFile = document.getElementById("ioFile");
+const ioActivate = document.getElementById("ioActivate");
+let ioInitialText = "";
+let ioFileUploaded = false;
+
+function updateIoActivateButton() {
+    ioActivate.disabled = !ioFileUploaded && ioText.value === ioInitialText;
+}
+
+function setIoMessage(message, isError = false) {
+    ioMessage.textContent = message;
+    ioMessage.className = isError ? "io-error" : "";
+}
+
+function openIoDialog() {
+    ioInitialText = JSON.stringify(serializeNavigationState(), null, 2);
+    ioText.value = ioInitialText;
+    ioFileUploaded = false;
+    ioActivate.disabled = true;
+    setIoMessage("");
+    ioDialog.showModal();
+}
+
+document.getElementById("ioTool").onclick = openIoDialog;
+document.getElementById("ioClose").onclick = () => ioDialog.close();
+ioText.addEventListener("input", () => {
+    updateIoActivateButton();
+    setIoMessage("");
+});
+document.getElementById("ioUpload").onclick = () => ioFile.click();
+ioFile.addEventListener("change", async event => {
+    const file = event.target.files[0];
+    if (!file) {
+        return;
+    }
+    try {
+        ioText.value = await file.text();
+        ioFileUploaded = true;
+        updateIoActivateButton();
+        setIoMessage("File loaded into the text area. Activate to apply it.");
+    } catch (error) {
+        setIoMessage(
+            "Could not read the selected file: " +
+                (error && error.message ? error.message : String(error)),
+            true
+        );
+    } finally {
+        ioFile.value = "";
+    }
+});
+document.getElementById("ioDownload").onclick = () => {
+    let downloadUrl;
+    let downloadLink;
+    try {
+        const file = new window.Blob(
+            [ioText.value],
+            { type: "application/json" }
+        );
+        downloadUrl = window.URL.createObjectURL(file);
+        downloadLink = document.createElement("a");
+        downloadLink.href = downloadUrl;
+        downloadLink.download = "navitools.json";
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        downloadLink.remove();
+        window.URL.revokeObjectURL(downloadUrl);
+        setIoMessage("Downloaded navitools.json.");
+    } catch (error) {
+        if (downloadLink && downloadLink.parentNode) {
+            downloadLink.remove();
+        }
+        if (downloadUrl) {
+            window.URL.revokeObjectURL(downloadUrl);
+        }
+        setIoMessage(
+            "Could not download navigation data: " +
+                (error && error.message ? error.message : String(error)),
+            true
+        );
+    }
+};
+ioActivate.onclick = () => {
+    let state;
+    try {
+        state = JSON.parse(ioText.value);
+        validateStoredNavigationState(state);
+    } catch (error) {
+        setIoMessage(
+            error && error.message ? error.message : "Navigation data is invalid.",
+            true
+        );
+        return;
+    }
+
+    try {
+        window.localStorage.setItem(navigationStorageKey, ioText.value);
+    } catch (error) {
+        showStorageError("activate", error);
+        setIoMessage(
+            "Could not save navigation data: " +
+                (error && error.message ? error.message : String(error)),
+            true
+        );
+        return;
+    }
+
+    try {
+        rebuildNavigationState(state);
+    } catch (error) {
+        showStorageError("activate", error);
+        setIoMessage(
+            "Could not activate navigation data: " +
+                (error && error.message ? error.message : String(error)),
+            true
+        );
+        return;
+    }
+    setInfoMessage("Navigation data activated");
+    ioDialog.close();
+};
+
 menuToggle.onclick = () => {
     const expanded = menuToggle.getAttribute("aria-expanded") === "true";
     menuToggle.setAttribute("aria-expanded", String(!expanded));
@@ -2535,25 +2691,7 @@ document.getElementById("clearTool").onclick = () => {
     )) {
         return;
     }
-    objects.forEach(object => map.removeLayer(object));
-    objects = [];
-    points = [];
-    navigationLines = [];
-    bearingLines = [];
-    intercepts = [];
-    greatCircleRoutes = [];
-    selectedObject = null;
-    mode = null;
-    gcrStartPoint = null;
-    drPopup.hidden = true;
-    brgToPopup.hidden = true;
-    intPopup.hidden = true;
-    nextFixNumber = 1;
-    nextDrNumber = 1;
-    nextPointId = 1;
-    nextLineId = 1;
-    activateButton(null);
-    updateSelectionStyle();
+    clearNavigationGraph();
     try {
         window.localStorage.removeItem(navigationStorageKey);
         setInfoMessage("Cleared");
