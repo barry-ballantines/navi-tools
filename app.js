@@ -2171,8 +2171,12 @@ function openDrPopup() {
     mode = null;
     activateButton("drTool");
     drStartLabel.textContent = selectedObject.label;
-    drBearing.value = "";
-    drDistance.value = "";
+    drBearing.value = selectedObject.incomingLine
+        ? String(selectedObject.incomingLine.bearing)
+        : "";
+    drDistance.value = selectedObject.incomingLine
+        ? String(selectedObject.incomingLine.distanceNM)
+        : "";
     drError.textContent = "";
     drPopup.hidden = false;
     drBearing.focus();

@@ -724,6 +724,8 @@ test("DR is enabled for a selected point and creates a named DR leg", () => {
     app.select("drTool");
     assert.equal(app.elements.drPopup.hidden, false);
     assert.equal(app.elements.drStartLabel.textContent, "FIX 1");
+    assert.equal(app.elements.drBearing.value, "");
+    assert.equal(app.elements.drDistance.value, "");
     app.elements.drBearing.value = "90";
     app.elements.drDistance.value = "60.04";
     app.submit("drForm");
@@ -1406,6 +1408,8 @@ test("a DR can start another leg and FIX movement propagates through the course"
     app.elements.drDistance.value = "60";
     app.submit("drForm");
     app.select("drTool");
+    assert.equal(app.elements.drBearing.value, "90");
+    assert.equal(app.elements.drDistance.value, "60");
     app.elements.drBearing.value = "0";
     app.elements.drDistance.value = "60";
     app.submit("drForm");
