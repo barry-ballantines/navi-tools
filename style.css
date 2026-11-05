@@ -520,6 +520,42 @@ dialog#ioDialog {
     white-space: pre-line;
 }
 
+.info-delete {
+    min-height: 44px;
+    margin-top: 8px;
+    border-color: #b00020;
+    color: #b00020;
+    white-space: nowrap;
+}
+
+.info-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.info-actions button[type="submit"] {
+    flex: 1;
+    min-height: 44px;
+    border-color: #24566b;
+    background: #24566b;
+    color: white;
+    font-weight: bold;
+}
+
+.info-actions button[type="submit"]:hover {
+    background: #194454;
+}
+
+.info-actions .info-delete {
+    margin-top: 0;
+    padding-right: 10px;
+    padding-left: 10px;
+}
+
+.info-delete:hover {
+    background: #fff0f1;
+}
+
 .info form {
     display: grid;
     gap: 6px;

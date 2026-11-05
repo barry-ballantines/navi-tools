@@ -122,7 +122,17 @@
                 required
             >
         </label>
-        <button type="submit">Apply</button>
+        <div class="info-actions">
+            <button
+                id="deleteObject"
+                class="info-delete"
+                type="button"
+                aria-label="Delete selected point"
+                title="Delete selected point"
+                hidden
+            >Delete</button>
+            <button type="submit">Apply</button>
+        </div>
     </form>
     <form id="lineInfo" hidden>
         <strong id="lineTitle">DR leg</strong>
@@ -132,7 +142,17 @@
         <label>Distance (nm)
             <input id="lineDistance" type="number" min="0" step="any" required>
         </label>
-        <button type="submit">Apply</button>
+        <div class="info-actions">
+            <button
+                id="deleteLineObject"
+                class="info-delete"
+                type="button"
+                aria-label="Delete selected line"
+                title="Delete selected line"
+                hidden
+            >Delete</button>
+            <button type="submit">Apply</button>
+        </div>
     </form>
     <form id="interceptInfo" hidden>
         <strong>INT sight</strong>
@@ -143,8 +163,26 @@
         <label>Intercept distance (nm)
             <input id="interceptDistance" type="number" step="any" required>
         </label>
-        <button type="submit">Apply</button>
+        <div class="info-actions">
+            <button
+                id="deleteInterceptObject"
+                class="info-delete"
+                type="button"
+                aria-label="Delete selected intercept"
+                title="Delete selected intercept"
+                hidden
+            >Delete</button>
+            <button type="submit">Apply</button>
+        </div>
     </form>
+    <button
+        id="deleteRouteObject"
+        class="info-delete"
+        type="button"
+        aria-label="Delete selected route"
+        title="Delete selected route"
+        hidden
+    >Delete</button>
 </div>
 
 <div id="drPopup" class="tool-popup" hidden>
