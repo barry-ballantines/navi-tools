@@ -265,6 +265,17 @@ let isRestoringNavigationState = false;
 
 const infoMessage = document.getElementById("infoMessage");
 const pointInfo = document.getElementById("pointInfo");
+const deleteObjectButton = document.getElementById("deleteObject");
+const deleteLineObjectButton = document.getElementById("deleteLineObject");
+const deleteInterceptObjectButton =
+    document.getElementById("deleteInterceptObject");
+const deleteRouteObjectButton = document.getElementById("deleteRouteObject");
+const deleteObjectButtons = [
+    deleteObjectButton,
+    deleteLineObjectButton,
+    deleteInterceptObjectButton,
+    deleteRouteObjectButton
+];
 const pointType = document.getElementById("pointType");
 const pointLabel = document.getElementById("pointLabel");
 const pointPosition = document.getElementById("pointPosition");
@@ -480,6 +491,9 @@ function setInfoMessage(message) {
     pointInfo.hidden = true;
     lineInfo.hidden = true;
     interceptInfo.hidden = true;
+    deleteObjectButtons.forEach(button => {
+        button.hidden = true;
+    });
 }
 
 function formatPositionCoordinate(value, isLatitude, precision = 2) {
@@ -564,9 +578,16 @@ function parsePosition(value) {
     };
 }
 
+function showDeleteButton(button) {
+    deleteObjectButtons.forEach(deleteButton => {
+        deleteButton.hidden = deleteButton !== button;
+    });
+}
+
 function showPointInfo(point) {
     document.getElementById("info").hidden = false;
     infoMessage.textContent = "";
+    showDeleteButton(deleteObjectButton);
     pointInfo.hidden = false;
     lineInfo.hidden = true;
     interceptInfo.hidden = true;
@@ -580,6 +601,7 @@ function showPointInfo(point) {
 function showLineInfo(line) {
     document.getElementById("info").hidden = false;
     infoMessage.textContent = "";
+    showDeleteButton(deleteLineObjectButton);
     pointInfo.hidden = true;
     lineInfo.hidden = false;
     interceptInfo.hidden = true;
@@ -591,6 +613,7 @@ function showLineInfo(line) {
 function showInterceptInfo(intercept) {
     document.getElementById("info").hidden = false;
     infoMessage.textContent = "";
+    showDeleteButton(deleteInterceptObjectButton);
     pointInfo.hidden = true;
     lineInfo.hidden = true;
     interceptInfo.hidden = false;
@@ -709,6 +732,7 @@ function showGreatCircleRouteInfo(route) {
         "\nArrival heading: " +
         formatTrueHeading(details.arrivalHeading)
     );
+    showDeleteButton(deleteRouteObjectButton);
 }
 
 function destinationPoint(start, bearingDegrees, distanceNM) {
@@ -2552,6 +2576,10 @@ function deleteSelectedObject() {
         : "Object and dependent DRs deleted");
     persistNavigationState();
 }
+
+deleteObjectButtons.forEach(button => {
+    button.onclick = deleteSelectedObject;
+});
 
 document.addEventListener("keydown", event => {
     if (

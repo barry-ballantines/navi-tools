@@ -54,7 +54,9 @@ function createApp(options = {}) {
             "ioTool", "ioDialog", "ioClose", "ioText", "ioMessage", "ioFile",
             "ioUpload", "ioDownload", "ioActivate",
             "pointInfo", "pointType", "pointLabel", "pointPosition",
-            "lineInfo", "lineTitle", "lineBearing", "lineDistance", "drPopup", "drForm",
+            "deleteObject", "deleteLineObject", "deleteInterceptObject",
+            "deleteRouteObject", "lineInfo", "lineTitle", "lineBearing", "lineDistance",
+            "drPopup", "drForm",
             "interceptInfo", "interceptName", "interceptBearing", "interceptDistance",
             "drStartLabel", "drBearing", "drDistance", "drError", "drCancel",
             "brgToPopup", "brgToForm", "brgToFixLabel", "brgToBearing",
@@ -66,6 +68,10 @@ function createApp(options = {}) {
             .map(id => [id, element(id)])
     );
     elements.pointInfo.hidden = true;
+    elements.deleteObject.hidden = true;
+    elements.deleteLineObject.hidden = true;
+    elements.deleteInterceptObject.hidden = true;
+    elements.deleteRouteObject.hidden = true;
     elements.menuToggle.attributes["aria-expanded"] = "true";
     elements.toolbarActions.hidden = false;
     elements.lineInfo.hidden = true;
@@ -565,6 +571,26 @@ test("toolbar menu collapses and info panel can close and reopen", () => {
     assert.equal(elements.info.hidden, true);
     elements.fixTool.onclick();
     assert.equal(elements.info.hidden, false);
+});
+
+test("selected object info provides a touch-friendly delete action", () => {
+    const app = createApp();
+    const { elements } = app;
+
+    assert.equal(elements.deleteObject.hidden, true);
+    assert.equal(elements.deleteLineObject.hidden, true);
+    assert.equal(elements.deleteInterceptObject.hidden, true);
+    assert.equal(elements.deleteRouteObject.hidden, true);
+    app.select("fixTool");
+    app.click(0, 0);
+
+    assert.equal(elements.deleteObject.hidden, false);
+    elements.deleteObject.onclick();
+
+    assert.equal(app.confirmations.length, 1);
+    assert.match(app.confirmations[0], /Delete the selected point/);
+    assert.equal(app.activeMarkers.length, 0);
+    assert.equal(elements.deleteObject.hidden, true);
 });
 
 test("IN/OUT dialog tracks edits, uploads, and downloads the text area contents", async () => {
