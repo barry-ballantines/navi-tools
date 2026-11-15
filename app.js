@@ -627,41 +627,21 @@ function updateSelectionStyle() {
         point.marker.setIcon(pointIcon(point, point === selectedObject))
     );
     navigationLines.forEach(line =>
-        line.layer.setStyle(
-            line === selectedObject
-                ? { color: "orange", weight: 5 }
-                : { color: "red", weight: 3 }
-        )
+        setLineSelected(line.layer, line === selectedObject)
     );
     bearingLines.forEach(line =>
-        line.layer.setStyle(
-            line === selectedObject
-                ? { color: "orange", weight: 5, dashArray: "6, 6" }
-                : { color: "#555", weight: 3, dashArray: "6, 6" }
-        )
+        setLineSelected(line.layer, line === selectedObject)
     );
     intercepts.forEach(intercept => {
         const selected = intercept === selectedObject;
-        const lineStyle = selected
-            ? { color: "orange", weight: 5 }
-            : { color: "#666", weight: 3 };
-        intercept.arrowLayer.setStyle({
-            ...lineStyle,
-            dashArray: "6, 6"
-        });
+        setLineSelected(intercept.arrowLayer, selected);
         if (intercept.awayLayer) {
-            intercept.awayLayer.setStyle({
-                ...lineStyle,
-                dashArray: "6, 6"
-            });
+            setLineSelected(intercept.awayLayer, selected);
         }
-        intercept.lopLayer.setStyle(lineStyle);
+        setLineSelected(intercept.lopLayer, selected);
     });
     greatCircleRoutes.forEach(route =>
-        route.layer.setStyle({
-            color: "#003366",
-            weight: route === selectedObject ? 5 : 3
-        })
+        setLineSelected(route.layer, route === selectedObject)
     );
     drButton.disabled = !selectedObject || !points.includes(selectedObject);
     gcrButton.disabled =
@@ -674,6 +654,13 @@ function updateSelectionStyle() {
     interceptButton.disabled =
         !selectedObject ||
         !points.includes(selectedObject);
+}
+
+function setLineSelected(layer, selected) {
+    const element = layer.getElement();
+    if (element) {
+        element.classList.toggle("navigation-line-selected", selected);
+    }
 }
 
 function selectObject(object) {
@@ -1145,7 +1132,10 @@ function createDrLine(startPoint, bearingDegrees, distanceNM, options = {}) {
         distanceNM,
         layer: L.polyline(
             [startPoint.latlng, endPoint.latlng],
-            { color: "red", weight: 3, bubblingMouseEvents: false }
+            {
+                className: "navigation-line navigation-line-dr",
+                bubblingMouseEvents: false
+            }
         ).addTo(map)
     };
     line.annotation = L.marker(startPoint.latlng, {
@@ -1190,9 +1180,7 @@ function createBearingLine(fixPoint, bearingDegrees, distanceNM, options = {}) {
         layer: L.polyline(
             [startPoint.latlng, fixPoint.latlng],
             {
-                color: "#555",
-                weight: 3,
-                dashArray: "6, 6",
+                className: "navigation-line navigation-line-bearing",
                 bubblingMouseEvents: false
             }
         ).addTo(map),
@@ -1429,9 +1417,7 @@ function makeInterceptMarker(latlng, className, html, iconSize, iconAnchor, opti
 function ensureInterceptAwayLayer(intercept) {
     if (intercept.interceptNM < 0 && !intercept.awayLayer) {
         intercept.awayLayer = L.polyline([], {
-            color: "#666",
-            weight: 3,
-            dashArray: "6, 6",
+            className: "navigation-line navigation-line-intercept-away",
             bubblingMouseEvents: false
         }).addTo(map);
         intercept.awayLayer.on("click", () => selectObject(intercept));
@@ -1479,20 +1465,17 @@ function createIntercept(apPoint, starName, bearing, interceptNM, options = {}) 
         bearing,
         intercept.arrowLengthNM
     );
-    const arrowStyle = {
-        color: "#666",
-        weight: 3,
-        dashArray: "6, 6",
+    const arrowOptions = {
+        className: "navigation-line navigation-line-intercept-arrow",
         bubblingMouseEvents: false
     };
-    const lopStyle = {
-        color: "#666",
-        weight: 3,
+    const lopOptions = {
+        className: "navigation-line navigation-line-intercept-lop",
         bubblingMouseEvents: false
     };
     intercept.arrowLayer = L.polyline(
         [apPosition, arrowEnd],
-        arrowStyle
+        arrowOptions
     ).addTo(map);
     if (interceptNM < 0) {
         intercept.awayLayer = L.polyline(
@@ -1500,10 +1483,13 @@ function createIntercept(apPoint, starName, bearing, interceptNM, options = {}) 
                 apPosition,
                 destinationPoint(apPosition, (bearing + 180) % 360, intercept.awayLengthNM)
             ],
-            arrowStyle
+            {
+                ...arrowOptions,
+                className: "navigation-line navigation-line-intercept-away"
+            }
         ).addTo(map);
     }
-    intercept.lopLayer = L.polyline([], lopStyle).addTo(map);
+    intercept.lopLayer = L.polyline([], lopOptions).addTo(map);
     intercept.arrowHandle = L.marker(arrowEnd, {
         draggable: true,
         zIndexOffset: 1000,
@@ -1627,7 +1613,10 @@ function createGreatCircleRoute(startPoint, endPoint, id) {
         endPoint,
         layer: L.polyline(
             greatCirclePath(startPoint.latlng, endPoint.latlng),
-            { color: "#003366", weight: 3, bubblingMouseEvents: false }
+            {
+                className: "navigation-line navigation-line-gcr",
+                bubblingMouseEvents: false
+            }
         ).addTo(map)
     };
     const annotationOptions = {

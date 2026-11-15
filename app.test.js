@@ -239,9 +239,6 @@ function createApp(options = {}) {
             return this;
         }
 
-        setStyle(style) {
-            this.style = style;
-        }
     }
     class MockMarker extends MockLayer {
         constructor(latlng, options) {
@@ -275,6 +272,20 @@ function createApp(options = {}) {
             super();
             this.latlngs = latlngs;
             this.options = options;
+            const classes = new Set((options.className || "").split(/\s+/).filter(Boolean));
+            this.element = {
+                classList: {
+                    toggle(className, enabled) {
+                        if (enabled) {
+                            classes.add(className);
+                        } else {
+                            classes.delete(className);
+                        }
+                    },
+                    contains: className => classes.has(className)
+                }
+            };
+            this.getElement = () => this.element;
             this.setLatLngs = positions => {
                 this.latlngs = positions;
             };
@@ -784,7 +795,8 @@ test("GCR and INT are available from a selected DR point", () => {
     app.select("gcrTool");
     assert.match(app.text(), /Great Circle Route from DR 1/);
     app.click(1, 2);
-    assert.equal(app.lines[1].options.color, "#003366");
+    assert.equal(app.lines[1].options.className, "navigation-line navigation-line-gcr");
+    assert.equal(app.lines[1].options.color, undefined);
     assert.ok(Math.abs(app.lines[1].latlngs[0].lat - drPoint.getLatLng().lat) < 1e-10);
     assert.ok(Math.abs(app.lines[1].latlngs[0].lng - drPoint.getLatLng().lng) < 1e-10);
     const saved = JSON.parse(app.storageValues.get("navi-tools.navigation.v1"));
@@ -820,8 +832,11 @@ test("BRG TO creates a dashed 5 nm line ending at the selected FIX", () => {
 
     const line = app.lines[0];
     assert.equal(app.elements.brgToPopup.hidden, true);
-    assert.equal(line.options.color, "#555");
-    assert.equal(line.options.dashArray, "6, 6");
+    assert.equal(line.options.className, "navigation-line navigation-line-bearing");
+    assert.equal(line.options.color, undefined);
+    assert.equal(line.options.weight, undefined);
+    assert.equal(line.options.dashArray, undefined);
+    assert.equal(line.element.classList.contains("navigation-line-selected"), true);
     assert.ok(Math.abs(line.latlngs[0].lng + 5 / 60) < 0.001);
     assert.equal(line.latlngs[1], fix.getLatLng());
     assert.equal(app.bearingHandles.length, 1);
@@ -853,6 +868,7 @@ test("BRG TO handle changes length on its fixed bearing and line edits recalcula
     assert.equal(app.lines[0].latlngs[1], app.markers[0].getLatLng());
 
     app.lines[0].fire("click");
+    assert.equal(app.lines[0].element.classList.contains("navigation-line-selected"), true);
     app.elements.lineBearing.value = "180";
     app.elements.lineDistance.value = "10";
     app.submit("lineInfo");
@@ -895,7 +911,7 @@ test("BRG TO persists, deletes independently, and is removed with its FIX", () =
     assert.equal(restored.markers.length, 1);
     assert.equal(restored.lines.length, 1);
     assert.equal(restored.bearingHandles.length, 1);
-    assert.equal(restored.lines[0].options.dashArray, "6, 6");
+    assert.equal(restored.lines[0].options.className, "navigation-line navigation-line-bearing");
     restored.lines[0].fire("click");
     restored.deleteKey();
     assert.equal(restored.markers.length, 1);
@@ -945,9 +961,8 @@ test("INT plots a positive intercept, star, arrow label, and perpendicular LOP",
     assert.equal(app.elements.interceptBearing.value, 25);
     assert.equal(app.elements.interceptDistance.value, 12.5);
     assert.equal(app.lines.length, 2);
-    assert.equal(app.lines[0].options.color, "#666");
-    assert.equal(app.lines[0].options.dashArray, "6, 6");
-    assert.equal(app.lines[1].options.dashArray, undefined);
+    assert.equal(app.lines[0].options.className, "navigation-line navigation-line-intercept-arrow");
+    assert.equal(app.lines[1].options.className, "navigation-line navigation-line-intercept-lop");
     assert.equal(app.interceptStars.length, 1);
     assert.match(app.interceptStars[0].options.icon.html, /★/);
     assert.match(app.interceptStars[0].options.icon.html, /Sirius/);
@@ -1005,9 +1020,9 @@ test("INT AWAY adds an opposite dashed line, and any INT line opens editable sig
     app.submit("intForm");
 
     assert.equal(app.lines.length, 3);
-    assert.equal(app.lines[0].options.dashArray, "6, 6");
-    assert.equal(app.lines[1].options.dashArray, "6, 6");
-    assert.equal(app.lines[2].options.dashArray, undefined);
+    assert.equal(app.lines[0].options.className, "navigation-line navigation-line-intercept-arrow");
+    assert.equal(app.lines[1].options.className, "navigation-line navigation-line-intercept-away");
+    assert.equal(app.lines[2].options.className, "navigation-line navigation-line-intercept-lop");
     assert.ok(app.lines[0].latlngs[1].lat > 0);
     assert.ok(app.lines[1].latlngs[1].lat < 0);
     const awayAnnotation = app.annotations.find(marker =>
@@ -1018,6 +1033,9 @@ test("INT AWAY adds an opposite dashed line, and any INT line opens editable sig
     assert.match(app.interceptStars[0].options.icon.html, /Vega/);
 
     app.lines[2].fire("click");
+    assert.equal(app.lines.every(line =>
+        line.element.classList.contains("navigation-line-selected")
+    ), true);
     assert.equal(app.elements.interceptInfo.hidden, false);
     assert.equal(app.elements.interceptName.value, "Vega");
     assert.equal(app.elements.interceptDistance.value, -12.5);
@@ -1253,7 +1271,8 @@ test("GCR connects a selected FIX to a new FIX with a dark-blue great-circle rou
     const route = app.lines[0];
     assert.equal(endFix.options.alt, "FIX 2");
     assert.equal(endFix.options.draggable, true);
-    assert.equal(route.options.color, "#003366");
+    assert.equal(route.options.className, "navigation-line navigation-line-gcr");
+    assert.equal(route.options.color, undefined);
     assert.ok(route.latlngs.length > 2);
     assert.ok(route.latlngs[Math.floor(route.latlngs.length / 2)].lat > 30);
     assert.ok(Math.abs(route.latlngs[0].lat - startFix.getLatLng().lat) < 1e-10);
@@ -1343,7 +1362,7 @@ test("GCR routes persist across reloads and are removed when their FIX is delete
     const restored = createApp({ storageValues: app.storageValues });
     assert.equal(restored.markers.length, 2);
     assert.equal(restored.lines.length, 1);
-    assert.equal(restored.lines[0].options.color, "#003366");
+    assert.equal(restored.lines[0].options.className, "navigation-line navigation-line-gcr");
     assert.equal(restored.lines[0].latlngs.length > 2, true);
 
     restored.markers[0].fire("click");
