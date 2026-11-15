@@ -258,7 +258,7 @@ body {
 
 .leaflet-overlay-pane path.navigation-line {
     fill: none;
-    stroke-width: 3;
+    stroke-width: 2;
 }
 
 .leaflet-overlay-pane path.navigation-line-dr {
@@ -267,13 +267,14 @@ body {
 
 .leaflet-overlay-pane path.navigation-line-bearing {
     stroke: #555;
-    stroke-dasharray: 6 6;
+    stroke-dasharray: 2 4;
 }
 
 .leaflet-overlay-pane path.navigation-line-intercept-arrow,
 .leaflet-overlay-pane path.navigation-line-intercept-away {
     stroke: #666;
-    stroke-dasharray: 6 6;
+    stroke-dasharray: 4 8;
+    stroke-width: 2;
 }
 
 .leaflet-overlay-pane path.navigation-line-intercept-lop {
