@@ -256,6 +256,39 @@ body {
     background: #b05c00;
 }
 
+.leaflet-overlay-pane path.navigation-line {
+    fill: none;
+    stroke-width: 3;
+}
+
+.leaflet-overlay-pane path.navigation-line-dr {
+    stroke: red;
+}
+
+.leaflet-overlay-pane path.navigation-line-bearing {
+    stroke: #555;
+    stroke-dasharray: 6 6;
+}
+
+.leaflet-overlay-pane path.navigation-line-intercept-arrow,
+.leaflet-overlay-pane path.navigation-line-intercept-away {
+    stroke: #666;
+    stroke-dasharray: 6 6;
+}
+
+.leaflet-overlay-pane path.navigation-line-intercept-lop {
+    stroke: #666;
+}
+
+.leaflet-overlay-pane path.navigation-line-gcr {
+    stroke: #003366;
+}
+
+.leaflet-overlay-pane path.navigation-line-selected {
+    stroke: orange;
+    stroke-width: 5;
+}
+
 .line-annotation-icon {
     border: 0;
     background: transparent;
