@@ -258,31 +258,35 @@ body {
 
 .leaflet-overlay-pane path.navigation-line {
     fill: none;
-    stroke-width: 2;
+    stroke-width: 1;
 }
 
 .leaflet-overlay-pane path.navigation-line-dr {
     stroke: red;
+    stroke-width: 2;
 }
 
 .leaflet-overlay-pane path.navigation-line-bearing {
     stroke: #555;
     stroke-dasharray: 2 4;
+    stroke-width: 1;
 }
 
 .leaflet-overlay-pane path.navigation-line-intercept-arrow,
 .leaflet-overlay-pane path.navigation-line-intercept-away {
     stroke: #666;
     stroke-dasharray: 4 8;
-    stroke-width: 2;
+    stroke-width: 1;
 }
 
 .leaflet-overlay-pane path.navigation-line-intercept-lop {
     stroke: #666;
+    stroke-width: 1;
 }
 
 .leaflet-overlay-pane path.navigation-line-gcr {
     stroke: #003366;
+    stroke-width: 2;
 }
 
 .leaflet-overlay-pane path.navigation-line-selected {
